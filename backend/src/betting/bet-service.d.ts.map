@@ -1,0 +1,1 @@
+{"version":3,"file":"bet-service.d.ts","sourceRoot":"","sources":["bet-service.ts"],"names":[],"mappings":"AAKA,MAAM,WAAW,aAAa;IAC5B,MAAM,EAAE,MAAM,CAAC;IACf,SAAS,EAAE,MAAM,CAAC;IAClB,QAAQ,EAAE,MAAM,CAAC;IACjB,WAAW,EAAE,MAAM,CAAC;IACpB,KAAK,EAAE,MAAM,CAAC;IACd,cAAc,CAAC,EAAE,MAAM,CAAC;CACzB;AAED;;GAEG;AACH,wBAAsB,iBAAiB,CAAC,KAAK,EAAE,aAAa;;;;;;;;;;eA8F3D"}
