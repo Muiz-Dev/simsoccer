@@ -11,9 +11,8 @@ export async function settleFixtureBets(fixtureId: string) {
 
   // 1. Fetch fixture & statistics
   const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
-  if (!fixture || fixture.homeScore === null) {
-    console.log(`⚠️ Fixture '${fixtureId}' has no final score. Skipping settlement.`);
-    return;
+  if (!fixture || fixture.status !== 'FINISHED' || fixture.homeScore === null || fixture.awayScore === null) {
+    throw new Error(`Fixture '${fixtureId}' is not finalized; settlement must wait for its persisted final result.`);
   }
 
   const homeScore = fixture.homeScore ?? 0;
@@ -122,7 +121,7 @@ export async function settleFixtureBets(fixtureId: string) {
 
       // Credit payout for winning bet
       if (isWin && payoutAmount > 0) {
-        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, bet.userId));
+        const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, bet.userId)).for('update');
         if (wallet) {
           const balanceBefore = new Decimal(wallet.balance);
           const payoutDec = new Decimal(payoutAmount);

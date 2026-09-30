@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import { redisConnection, SIMULATION_QUEUE_NAME } from './queues';
 import { MatchEngine } from '../simulation/match-engine';
 import { processPostMatchEvolution } from '../simulation/evolution';
-import { settleFixtureBets } from '../betting/settlement';
 import { broadcastMatchEvent } from '../realtime/websocket';
 import { db } from '../db/index';
 import { fixtures, matches, matchEvents, matchSnapshots, matchStatistics, simulationRuns } from '../db/schema/index';
@@ -255,38 +254,24 @@ export async function executeLiveMatchSimulation(options: {
     // Post-match ratings & form evolution
     await processPostMatchEvolution(result);
 
-    // Trigger bet settlement ONLY after full time
-    await settleFixtureBets(fixtureId);
+    const finishedAt = new Date();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(matches)
+        .set({ status: 'FINISHED', resultHash, timelineHash, updatedAt: finishedAt })
+        .where(eq(matches.fixtureId, fixtureId));
 
-    // Update match hashes & mark FINISHED
-    await db
-      .update(matches)
-      .set({
-        status: 'FINISHED',
-        resultHash,
-        timelineHash,
-        updatedAt: new Date(),
-      })
-      .where(eq(matches.fixtureId, fixtureId));
+      await tx
+        .update(fixtures)
+        .set({ status: 'FINISHED', finishedAt, updatedAt: finishedAt })
+        .where(eq(fixtures.id, fixtureId));
 
-    // Mark fixture FINISHED only after all post-match work is complete
-    await db
-      .update(fixtures)
-      .set({
-        status: 'FINISHED',
-        finishedAt: new Date(),
-      })
-      .where(eq(fixtures.id, fixtureId));
+      await tx
+        .update(simulationRuns)
+        .set({ status: 'COMPLETED', resultHash, timelineHash, completedAt: finishedAt })
+        .where(eq(simulationRuns.id, simRun.id));
 
-    await db
-      .update(simulationRuns)
-      .set({
-        status: 'COMPLETED',
-        resultHash,
-        timelineHash,
-        completedAt: new Date(),
-      })
-      .where(eq(simulationRuns.id, simRun.id));
+    });
 
     console.log(`✅ [MATCH ENGINE] Simulation completed for fixture '${fixtureId}'. Final Score: ${state.homeScore}-${state.awayScore}`);
     return result;

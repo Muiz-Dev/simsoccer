@@ -1,7 +1,7 @@
 import { MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
-import { checkDependenciesHealth, getWorldStatusInfo } from '../football/coordinator';
+import { checkDependenciesHealth, deriveWorldRound, getWorldStatusInfo } from '../football/coordinator';
 import { parseVirtualSeasonName, resolveCompetitionDataset } from '../football/seed';
 import { env } from '../config/env';
 
@@ -219,6 +219,23 @@ async function runTests() {
     throw new Error('❌ Test 9 Failed: Season dataset compatibility changed the competition roster size.');
   }
   console.log('  ✅ Test 9 Passed: Virtual Season 1/2 naming resolves to the canonical competition dataset and remains compatible with legacy season keys.');
+
+  // Test 10: Reconcile stale persisted round against unfinished fixtures
+  console.log('▶ Test 10: Shared Round Recovery from Fixture State...');
+  const recoveredRound = deriveWorldRound([
+    { round: 1, status: 'FINISHED' },
+    { round: 1, status: 'LIVE' },
+    { round: 2, status: 'SCHEDULED' },
+  ], 38);
+  const nextRound = deriveWorldRound([
+    { round: 1, status: 'FINISHED' },
+    { round: 2, status: 'SCHEDULED' },
+  ], 38);
+
+  if (recoveredRound !== 1 || nextRound !== 2) {
+    throw new Error(`❌ Test 10 Failed: fixture state selected rounds ${recoveredRound} and ${nextRound}, expected 1 and 2.`);
+  }
+  console.log('  ✅ Test 10 Passed: unfinished fixtures take precedence over a stale runtime round.');
 
   console.log('\n🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);

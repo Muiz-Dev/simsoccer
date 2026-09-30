@@ -1,6 +1,7 @@
 import { client } from './db/index';
 import { redisConnection } from './workers/queues';
 import { simulationWorker } from './workers/simulation.worker';
+import { settlementWorker } from './workers/settlement.worker';
 
 let shuttingDown = false;
 
@@ -16,6 +17,18 @@ simulationWorker.on('failed', (job, error) => {
   console.error(`❌ Simulation job ${job?.id ?? 'unknown'} failed:`, error);
 });
 
+settlementWorker.on('ready', () => {
+  console.log('✅ Bet settlement worker connected and ready.');
+});
+
+settlementWorker.on('error', (error) => {
+  console.error('❌ Bet settlement worker error:', error);
+});
+
+settlementWorker.on('failed', (job, error) => {
+  console.error(`❌ Settlement job ${job?.id ?? 'unknown'} failed:`, error);
+});
+
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -23,6 +36,7 @@ async function shutdown(signal: string): Promise<void> {
 
   try {
     await simulationWorker.close();
+    await settlementWorker.close();
     redisConnection.disconnect();
     await client.end();
   } catch (error) {

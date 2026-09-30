@@ -1,10 +1,10 @@
 import postgres from 'postgres';
 import Redis from 'ioredis';
 import { db } from '../db/index';
-import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, teamRatings, standings } from '../db/schema/index';
+import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, teamRatings, standings, betSelections } from '../db/schema/index';
 import { eq, and, or, sql, asc, desc, inArray } from 'drizzle-orm';
 import { env } from '../config/env';
-import { simulationQueue } from '../workers/queues';
+import { simulationQueue, settlementQueue } from '../workers/queues';
 import { buildSimulationInput } from './match-input';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
 import { generateDoubleRoundRobin } from './fixture-generator';
@@ -48,6 +48,19 @@ export interface WorldStatusInfo {
     postgres: boolean;
     redis: boolean;
   };
+}
+
+export function deriveWorldRound(
+  worldFixtures: Array<{ round: number; status: string }>,
+  totalRounds: number
+): number {
+  for (let round = 1; round <= totalRounds; round++) {
+    const roundFixtures = worldFixtures.filter((fixture) => fixture.round === round);
+    if (roundFixtures.length === 0 || roundFixtures.some((fixture) => fixture.status !== 'FINISHED' && fixture.status !== 'CANCELLED')) {
+      return round;
+    }
+  }
+  return totalRounds;
 }
 
 let dedicatedLockSql: ReturnType<typeof postgres> | null = null;
@@ -258,6 +271,38 @@ async function createNextWorldSeasons(previousWorldSeasons: Array<{ league: any;
   });
 }
 
+async function enqueuePendingFixtureSettlements(): Promise<void> {
+  const pendingSelections = await db
+    .select({ fixtureId: betSelections.fixtureId })
+    .from(betSelections)
+    .innerJoin(fixtures, eq(fixtures.id, betSelections.fixtureId))
+    .where(and(eq(fixtures.status, 'FINISHED'), eq(betSelections.status, 'PENDING')));
+  const pendingFixtureIds = new Set(pendingSelections.map(({ fixtureId }) => fixtureId));
+
+  for (const fixtureId of pendingFixtureIds) {
+    const jobId = `settlement-${fixtureId}`;
+    const existingJob = await settlementQueue.getJob(jobId);
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (state !== 'failed') continue;
+      if (existingJob.finishedOn && Date.now() - existingJob.finishedOn < 60000) continue;
+      await existingJob.remove();
+    }
+
+    await settlementQueue.add(
+      'settle-fixture',
+      { fixtureId },
+      {
+        jobId,
+        attempts: 8,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+      }
+    );
+    console.log(`⚖️ [WORLD COORDINATOR] Queued settlement for finished fixture '${fixtureId}'.`);
+  }
+}
+
 /**
  * Main coordinator loop tick.
  */
@@ -298,6 +343,7 @@ export async function tickCoordinator(): Promise<void> {
 export async function reconcileAndScheduleWorld(): Promise<void> {
   const now = new Date();
   lastReconciliationTime = now;
+  await enqueuePendingFixtureSettlements();
 
   const allLeagues = await db.select().from(leagues).where(eq(leagues.active, true)).orderBy(asc(leagues.slug));
 
@@ -358,13 +404,23 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
   }
 
   const seasonIds = worldSeasons.map(({ season }) => season.id);
+  const firstSeason = worldSeasons[0].season;
+  const totalRounds = firstSeason.totalRounds;
+  const allFixtures = await db.select().from(fixtures)
+    .where(inArray(fixtures.seasonId, seasonIds))
+    .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
   const [runtimeRow] = await db.select().from(worldRuntime).where(eq(worldRuntime.id, 'singleton'));
-  let worldRound = runtimeRow?.currentRound || Math.min(...worldSeasons.map(({ season }) => Math.max(1, season.currentRound)));
-  worldRound = Math.max(1, worldRound);
+  let worldRound = deriveWorldRound(allFixtures, totalRounds);
+
+  if (runtimeRow && runtimeRow.currentRound !== worldRound) {
+    console.warn(`⚠️ [WORLD COORDINATOR] Correcting persisted round ${runtimeRow.currentRound} to earliest incomplete shared round ${worldRound}.`);
+  }
 
   for (const { league, season } of worldSeasons) {
-    if (season.status === 'SCHEDULED' || season.currentRound !== worldRound) {
+    const virtualSeasonName = `Season ${season.seasonNumber}`;
+    if (season.status === 'SCHEDULED' || season.currentRound !== worldRound || season.name !== virtualSeasonName) {
       await db.update(seasons).set({
+        name: virtualSeasonName,
         status: 'ACTIVE',
         startAt: season.startAt || now,
         currentRound: worldRound,
@@ -375,11 +431,6 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
     }
   }
 
-  const firstSeason = worldSeasons[0].season;
-  const totalRounds = firstSeason.totalRounds;
-  const allFixtures = await db.select().from(fixtures)
-    .where(inArray(fixtures.seasonId, seasonIds))
-    .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
   const roundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound);
 
   if (roundFixtures.length === 0) {
