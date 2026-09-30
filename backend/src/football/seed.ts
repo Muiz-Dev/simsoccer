@@ -52,7 +52,14 @@ export async function seedDatabase(targetSeasonName: string = 'Season 1') {
   const seasonNumber = Number(seasonMatch[1]);
   const seasonCompetitions = resolveCompetitionDataset(targetSeasonName);
   const firstKickoffBase = new Date(Date.now() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
-  let roundOneFixtureIndex = 0;
+  const worldFixturesPerRound = Object.values(seasonCompetitions)
+    .reduce((total, competition) => total + competition.teams.length / 2, 0);
+  const worldRoundIntervalMs = (
+    env.MATCH_REAL_DURATION_SECONDS
+    + env.ROUND_BREAK_SECONDS
+    + (worldFixturesPerRound - 1) * env.FIXTURE_KICKOFF_STAGGER_SECONDS
+  ) * 1000;
+  const kickoffIndexByRound = new Map<number, number>();
 
   console.log(`🌱 Starting database seed for season '${targetSeasonName}'...`);
 
@@ -180,16 +187,22 @@ export async function seedDatabase(targetSeasonName: string = 'Season 1') {
     if (existingFixtures.length === 0) {
       console.log(`  📅 Generating 380 fixtures for ${compData.leagueName}...`);
       const pairings = generateDoubleRoundRobin(createdTeamIds.length);
-      const fixturesToInsert = pairings.map((pairing) => ({
-        seasonId: seasonRecord.id,
-        round: pairing.round,
-        homeTeamId: createdTeamIds[pairing.homeTeamIndex] as string,
-        awayTeamId: createdTeamIds[pairing.awayTeamIndex] as string,
-        scheduledAt: pairing.round === 1
-          ? new Date(firstKickoffBase.getTime() + roundOneFixtureIndex++ * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000)
-          : new Date(firstKickoffBase.getTime() + pairing.round * 86400000),
-        status: 'SCHEDULED',
-      }));
+      const fixturesToInsert = pairings.map((pairing) => {
+        const kickoffIndex = kickoffIndexByRound.get(pairing.round) ?? 0;
+        kickoffIndexByRound.set(pairing.round, kickoffIndex + 1);
+        return {
+          seasonId: seasonRecord.id,
+          round: pairing.round,
+          homeTeamId: createdTeamIds[pairing.homeTeamIndex] as string,
+          awayTeamId: createdTeamIds[pairing.awayTeamIndex] as string,
+          scheduledAt: new Date(
+            firstKickoffBase.getTime()
+            + (pairing.round - 1) * worldRoundIntervalMs
+            + kickoffIndex * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000
+          ),
+          status: 'SCHEDULED',
+        };
+      });
 
       for (let i = 0; i < fixturesToInsert.length; i += 100) {
         await db.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));

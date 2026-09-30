@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -224,10 +225,10 @@ export default function Home() {
   return (
     <main className={styles.page} ref={pageRef}>
       <header className={styles.header}>
-        <a className={styles.brand} href="/" aria-label="SimSoccer match centre">
+        <Link className={styles.brand} href="/" aria-label="SimSoccer match centre">
           <SportsSoccerIcon aria-hidden="true" />
           <span>SimSoccer</span>
-        </a>
+        </Link>
         <div className={styles.headerStatus} aria-live="polite">
           {overview ? (
             <>

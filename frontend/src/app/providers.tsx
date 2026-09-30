@@ -5,13 +5,14 @@ import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider } from "@mui/material/styles";
 import type { ReactNode } from "react";
 import theme from "@/theme";
+import { WorldDataProvider } from "@/contexts/WorldDataContext";
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
     <AppRouterCacheProvider options={{ enableCssLayer: true }}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        {children}
+        <WorldDataProvider>{children}</WorldDataProvider>
       </ThemeProvider>
     </AppRouterCacheProvider>
   );

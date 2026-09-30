@@ -202,10 +202,17 @@ async function createNextWorldSeasons(previousWorldSeasons: Array<{ league: any;
   const nextSeasonNumber = Math.max(...previousWorldSeasons.map(({ season }) => season.seasonNumber)) + 1;
   const now = new Date();
   const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
+  const worldFixturesPerRound = previousWorldSeasons
+    .reduce((total, { league }) => total + league.teamCount / 2, 0);
+  const worldRoundIntervalMs = (
+    env.MATCH_REAL_DURATION_SECONDS
+    + env.ROUND_BREAK_SECONDS
+    + (worldFixturesPerRound - 1) * env.FIXTURE_KICKOFF_STAGGER_SECONDS
+  ) * 1000;
 
   return db.transaction(async (tx) => {
     const createdSeasons = [];
-    let roundOneFixtureIndex = 0;
+    const kickoffIndexByRound = new Map<number, number>();
 
     for (const { league, season: previousSeason } of previousWorldSeasons) {
       const leagueTeams = await tx.select().from(teams)
@@ -250,16 +257,22 @@ async function createNextWorldSeasons(previousWorldSeasons: Array<{ league: any;
       }
 
       const pairings = generateDoubleRoundRobin(leagueTeams.length);
-      const fixturesToInsert = pairings.map((pairing) => ({
-        seasonId: newSeason.id,
-        round: pairing.round,
-        homeTeamId: leagueTeams[pairing.homeTeamIndex].id,
-        awayTeamId: leagueTeams[pairing.awayTeamIndex].id,
-        scheduledAt: pairing.round === 1
-          ? new Date(firstKickoff.getTime() + roundOneFixtureIndex++ * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000)
-          : new Date(firstKickoff.getTime() + pairing.round * 86400000),
-        status: 'SCHEDULED',
-      }));
+      const fixturesToInsert = pairings.map((pairing) => {
+        const kickoffIndex = kickoffIndexByRound.get(pairing.round) ?? 0;
+        kickoffIndexByRound.set(pairing.round, kickoffIndex + 1);
+        return {
+          seasonId: newSeason.id,
+          round: pairing.round,
+          homeTeamId: leagueTeams[pairing.homeTeamIndex].id,
+          awayTeamId: leagueTeams[pairing.awayTeamIndex].id,
+          scheduledAt: new Date(
+            firstKickoff.getTime()
+            + (pairing.round - 1) * worldRoundIntervalMs
+            + kickoffIndex * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000
+          ),
+          status: 'SCHEDULED',
+        };
+      });
 
       for (let i = 0; i < fixturesToInsert.length; i += 100) {
         await tx.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));

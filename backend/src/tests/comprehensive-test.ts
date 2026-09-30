@@ -1,4 +1,4 @@
-import { MatchEngine } from '../simulation/match-engine';
+import { getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
 import { checkDependenciesHealth, deriveWorldRound, getWorldStatusInfo } from '../football/coordinator';
@@ -236,6 +236,16 @@ async function runTests() {
     throw new Error(`❌ Test 10 Failed: fixture state selected rounds ${recoveredRound} and ${nextRound}, expected 1 and 2.`);
   }
   console.log('  ✅ Test 10 Passed: unfinished fixtures take precedence over a stale runtime round.');
+
+  // Test 11: The worker must process the terminal second at full time.
+  console.log('▶ Test 11: Full-Time Worker Batch Boundary...');
+  const finalSecondBatch = getVirtualStepsToAdvance(5400, 5400);
+  const finalTwoSecondsBatch = getVirtualStepsToAdvance(5399, 5400);
+  const noWorkAfterTarget = getVirtualStepsToAdvance(5401, 5400);
+  if (finalSecondBatch !== 1 || finalTwoSecondsBatch !== 2 || noWorkAfterTarget !== 0) {
+    throw new Error(`❌ Test 11 Failed: terminal batch counts were ${finalSecondBatch}, ${finalTwoSecondsBatch}, ${noWorkAfterTarget}.`);
+  }
+  console.log('  ✅ Test 11 Passed: the worker advances second 5400 exactly once instead of spinning at zero steps.');
 
   console.log('\n🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);

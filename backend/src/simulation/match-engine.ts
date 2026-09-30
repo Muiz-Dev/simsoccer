@@ -9,6 +9,14 @@ import {
   calculateHazardRates,
 } from './types';
 
+export function getVirtualStepsToAdvance(
+  currentVirtualSecond: number,
+  targetVirtualSecond: number,
+  maxBatchSize = 30,
+): number {
+  return Math.max(0, Math.min(maxBatchSize, targetVirtualSecond - currentVirtualSecond + 1));
+}
+
 export class MatchEngine {
   private rng: seedrandom.PRNG;
 

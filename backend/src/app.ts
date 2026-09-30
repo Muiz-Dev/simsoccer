@@ -55,16 +55,22 @@ export function createApp() {
         .limit(1);
 
       if (!season) {
-        return { league, season: null, standings: [], roundFixtures: [], nextRoundFixtures: [] };
+        return { league, season: null, standings: [], roundFixtures: [], nextRoundFixtures: [], previousRoundFixtures: [] };
       }
 
       const nextRound = season.currentRound < season.totalRounds ? season.currentRound + 1 : null;
+      const previousRound = season.currentRound > 1 ? season.currentRound - 1 : null;
       const nextRoundQuery = nextRound === null
         ? Promise.resolve([])
         : db.select().from(fixtures)
           .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, nextRound)))
           .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
-      const [tableRows, roundFixtures, nextRoundFixtures, leagueTeams] = await Promise.all([
+      const previousRoundQuery = previousRound === null
+        ? Promise.resolve([])
+        : db.select().from(fixtures)
+          .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, previousRound)))
+          .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
+      const [tableRows, roundFixtures, nextRoundFixtures, previousRoundFixtures, leagueTeams] = await Promise.all([
         db.select({
           teamId: teams.id,
           teamName: teams.name,
@@ -87,33 +93,45 @@ export function createApp() {
           .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, season.currentRound)))
           .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id)),
         nextRoundQuery,
+        previousRoundQuery,
         db.select({ id: teams.id, name: teams.name, shortName: teams.shortName, slug: teams.slug })
           .from(teams)
           .where(eq(teams.leagueId, league.id)),
       ]);
 
       const teamById = new Map(leagueTeams.map((team) => [team.id, team]));
-      const fixtureIds = [...roundFixtures, ...nextRoundFixtures].map((fixture) => fixture.id);
+      const allVisibleFixtures = [...roundFixtures, ...nextRoundFixtures, ...previousRoundFixtures];
+      const fixtureIds = allVisibleFixtures.map((fixture) => fixture.id);
       const matchRows = fixtureIds.length === 0
         ? []
-        : await db.select({ fixtureId: matches.fixtureId, virtualSecond: matches.virtualSecond })
+        : await db.select({
+          fixtureId: matches.fixtureId,
+          status: matches.status,
+          virtualSecond: matches.virtualSecond,
+          updatedAt: matches.updatedAt,
+        })
           .from(matches)
           .where(inArray(matches.fixtureId, fixtureIds));
       const matchByFixtureId = new Map(matchRows.map((match) => [match.fixtureId, match]));
 
-      const formatFixture = (fixture: typeof fixtures.$inferSelect) => ({
-        id: fixture.id,
-        round: fixture.round,
-        status: fixture.status,
-        scheduledAt: fixture.scheduledAt,
-        startedAt: fixture.startedAt,
-        finishedAt: fixture.finishedAt,
-        homeScore: fixture.homeScore ?? 0,
-        awayScore: fixture.awayScore ?? 0,
-        virtualSecond: matchByFixtureId.get(fixture.id)?.virtualSecond ?? 0,
-        homeTeam: teamById.get(fixture.homeTeamId) ?? null,
-        awayTeam: teamById.get(fixture.awayTeamId) ?? null,
-      });
+      const formatFixture = (fixture: typeof fixtures.$inferSelect) => {
+        const match = matchByFixtureId.get(fixture.id);
+        return {
+          id: fixture.id,
+          round: fixture.round,
+          status: fixture.status === 'FINISHED' || match?.status === 'FINISHED' ? 'FINISHED' : fixture.status,
+          matchStatus: match?.status ?? null,
+          scheduledAt: fixture.scheduledAt,
+          startedAt: fixture.startedAt,
+          finishedAt: fixture.finishedAt,
+          homeScore: fixture.homeScore ?? 0,
+          awayScore: fixture.awayScore ?? 0,
+          virtualSecond: match?.virtualSecond ?? 0,
+          clockUpdatedAt: match?.updatedAt ?? null,
+          homeTeam: teamById.get(fixture.homeTeamId) ?? null,
+          awayTeam: teamById.get(fixture.awayTeamId) ?? null,
+        };
+      };
 
       return {
         league,
@@ -127,6 +145,7 @@ export function createApp() {
         standings: tableRows.map((row, index) => ({ position: index + 1, ...row })),
         roundFixtures: roundFixtures.map(formatFixture),
         nextRoundFixtures: nextRoundFixtures.map(formatFixture),
+        previousRoundFixtures: previousRoundFixtures.map(formatFixture),
       };
     }));
 

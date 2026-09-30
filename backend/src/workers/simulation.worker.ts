@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import crypto from 'crypto';
 import { redisConnection, SIMULATION_QUEUE_NAME } from './queues';
-import { MatchEngine } from '../simulation/match-engine';
+import { getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
 import { processPostMatchEvolution } from '../simulation/evolution';
 import { broadcastMatchEvent } from '../realtime/websocket';
 import { db } from '../db/index';
@@ -119,16 +119,14 @@ export async function executeLiveMatchSimulation(options: {
         targetVirtualSecond = Math.min(5400, Math.floor((elapsedRealMs / totalRealMs) * 5400));
 
         // If engine is caught up with real wall-clock time, sleep briefly
-        if (state.virtualSecond >= targetVirtualSecond && targetVirtualSecond < 5400) {
+        if (state.virtualSecond > targetVirtualSecond) {
           const sleepMs = tickDelayMs > 0 ? tickDelayMs : 250;
           await new Promise((resolve) => setTimeout(resolve, sleepMs));
           continue;
         }
       }
 
-      const stepsToAdvance = fastMode
-        ? 5400 - state.virtualSecond
-        : Math.min(30, targetVirtualSecond - state.virtualSecond);
+      const stepsToAdvance = getVirtualStepsToAdvance(state.virtualSecond, targetVirtualSecond);
 
       for (let step = 0; step < stepsToAdvance && !state.isFullTime; step++) {
         const stepEvents = engine.stepSecond(state);
@@ -194,6 +192,8 @@ export async function executeLiveMatchSimulation(options: {
             .where(eq(fixtures.id, fixtureId));
         }
       }
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
 
       if (fastMode && tickDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, tickDelayMs));
