@@ -4,13 +4,13 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections } from './db/schema/index';
+import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings } from './db/schema/index';
 import { authenticateJwt, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { calculateAllPreMatchMarkets } from './markets/probability-engine';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { MatchEngine } from './simulation/match-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, asc, desc, inArray } from 'drizzle-orm';
 
 export function createApp() {
   const app = express();
@@ -41,6 +41,96 @@ export function createApp() {
   app.get('/api/world/status', async (req: Request, res: Response) => {
     const statusInfo = await getWorldStatusInfo();
     res.json(statusInfo);
+  });
+
+  app.get('/api/world/overview', async (req: Request, res: Response) => {
+    const [world, activeLeagues] = await Promise.all([
+      getWorldStatusInfo(),
+      db.select().from(leagues).where(eq(leagues.active, true)).orderBy(asc(leagues.name)),
+    ]);
+
+    const leagueOverviews = await Promise.all(activeLeagues.map(async (league) => {
+      const [season] = await db.select().from(seasons)
+        .where(and(eq(seasons.leagueId, league.id), eq(seasons.status, 'ACTIVE')))
+        .limit(1);
+
+      if (!season) {
+        return { league, season: null, standings: [], roundFixtures: [], nextRoundFixtures: [] };
+      }
+
+      const nextRound = season.currentRound < season.totalRounds ? season.currentRound + 1 : null;
+      const nextRoundQuery = nextRound === null
+        ? Promise.resolve([])
+        : db.select().from(fixtures)
+          .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, nextRound)))
+          .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
+      const [tableRows, roundFixtures, nextRoundFixtures, leagueTeams] = await Promise.all([
+        db.select({
+          teamId: teams.id,
+          teamName: teams.name,
+          shortName: teams.shortName,
+          slug: teams.slug,
+          played: standings.played,
+          won: standings.won,
+          drawn: standings.drawn,
+          lost: standings.lost,
+          goalsFor: standings.goalsFor,
+          goalsAgainst: standings.goalsAgainst,
+          goalDifference: standings.goalDifference,
+          points: standings.points,
+        })
+          .from(standings)
+          .innerJoin(teams, eq(standings.teamId, teams.id))
+          .where(eq(standings.seasonId, season.id))
+          .orderBy(desc(standings.points), desc(standings.goalDifference), desc(standings.goalsFor), asc(teams.name)),
+        db.select().from(fixtures)
+          .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, season.currentRound)))
+          .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id)),
+        nextRoundQuery,
+        db.select({ id: teams.id, name: teams.name, shortName: teams.shortName, slug: teams.slug })
+          .from(teams)
+          .where(eq(teams.leagueId, league.id)),
+      ]);
+
+      const teamById = new Map(leagueTeams.map((team) => [team.id, team]));
+      const fixtureIds = [...roundFixtures, ...nextRoundFixtures].map((fixture) => fixture.id);
+      const matchRows = fixtureIds.length === 0
+        ? []
+        : await db.select({ fixtureId: matches.fixtureId, virtualSecond: matches.virtualSecond })
+          .from(matches)
+          .where(inArray(matches.fixtureId, fixtureIds));
+      const matchByFixtureId = new Map(matchRows.map((match) => [match.fixtureId, match]));
+
+      const formatFixture = (fixture: typeof fixtures.$inferSelect) => ({
+        id: fixture.id,
+        round: fixture.round,
+        status: fixture.status,
+        scheduledAt: fixture.scheduledAt,
+        startedAt: fixture.startedAt,
+        finishedAt: fixture.finishedAt,
+        homeScore: fixture.homeScore ?? 0,
+        awayScore: fixture.awayScore ?? 0,
+        virtualSecond: matchByFixtureId.get(fixture.id)?.virtualSecond ?? 0,
+        homeTeam: teamById.get(fixture.homeTeamId) ?? null,
+        awayTeam: teamById.get(fixture.awayTeamId) ?? null,
+      });
+
+      return {
+        league,
+        season: {
+          id: season.id,
+          name: season.name,
+          seasonNumber: season.seasonNumber,
+          currentRound: season.currentRound,
+          totalRounds: season.totalRounds,
+        },
+        standings: tableRows.map((row, index) => ({ position: index + 1, ...row })),
+        roundFixtures: roundFixtures.map(formatFixture),
+        nextRoundFixtures: nextRoundFixtures.map(formatFixture),
+      };
+    }));
+
+    res.json({ generatedAt: new Date().toISOString(), world, leagues: leagueOverviews });
   });
 
   app.get('/api/health/database', async (req: Request, res: Response) => {

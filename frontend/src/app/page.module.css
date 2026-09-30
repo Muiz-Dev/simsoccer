@@ -1,0 +1,408 @@
+.page {
+  width: min(100% - 48px, 1360px);
+  margin: 0 auto;
+  color: var(--ink);
+}
+
+.header {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--rule);
+}
+
+.brand,
+.headerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--pitch);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.brand svg {
+  font-size: 21px;
+}
+
+.headerStatus {
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.headerStatus > svg {
+  color: var(--pitch);
+  font-size: 18px;
+}
+
+.refreshButton {
+  color: var(--ink) !important;
+}
+
+.offline {
+  color: var(--live);
+}
+
+.masthead {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 29px 0 22px;
+}
+
+.kicker {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.masthead h1 {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.worldSummary {
+  display: grid;
+  gap: 3px;
+  text-align: right;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.worldSummary strong {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.summaryDivider {
+  padding: 0 5px;
+  color: #99a19b;
+  font-weight: 400;
+}
+
+.competitionNav {
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.competitionNav :global(.MuiTabs-root) {
+  min-height: 45px;
+}
+
+.competitionNav :global(.MuiTabs-indicator) {
+  height: 2px;
+  background: var(--pitch);
+}
+
+.competitionNav :global(.MuiTab-root) {
+  min-width: 0;
+  padding: 0 17px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.competitionNav :global(.Mui-selected) {
+  color: var(--pitch) !important;
+}
+
+.connectionError {
+  margin: 12px 0 0;
+  color: var(--live);
+  font-size: 13px;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.24fr) minmax(340px, 0.76fr);
+  align-items: start;
+  gap: 38px;
+  padding: 27px 0 34px;
+}
+
+.matchesSection,
+.tableSection {
+  min-width: 0;
+}
+
+.tableSection {
+  padding-left: 30px;
+  border-left: 1px solid var(--rule);
+}
+
+.sectionHeading {
+  display: flex;
+  min-height: 52px;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.sectionHeading h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.liveCount,
+.tableUpdated {
+  padding-bottom: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.liveCount {
+  color: var(--live);
+}
+
+.fixtureList {
+  border-top: 1px solid var(--rule);
+}
+
+.fixtureRow {
+  display: grid;
+  grid-template-columns: 103px minmax(0, 1fr) 58px;
+  align-items: center;
+  min-height: 61px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.fixtureState {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.liveMark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--live);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.liveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--live);
+  animation: live-pulse 1.8s ease-out infinite;
+}
+
+.minute {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fixtureTeams {
+  display: grid;
+  gap: 3px;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.15;
+}
+
+.fixtureTeams span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leadingTeam {
+  font-weight: 700;
+}
+
+.score {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreSeparator {
+  color: #9aa39c;
+  font-weight: 400;
+}
+
+.finishedLabel {
+  color: var(--muted);
+}
+
+.nextRound {
+  margin-top: 30px;
+}
+
+.tableWrap {
+  border-top: 1px solid var(--rule);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  height: 34px;
+  padding: 0 7px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.table thead th {
+  height: 32px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.table .clubHeading,
+.table .clubName {
+  text-align: left;
+}
+
+.table .clubName {
+  overflow: hidden;
+  max-width: 175px;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.table .pointsHeading,
+.table .points {
+  padding-right: 2px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.table tbody tr.topPlace td:first-child {
+  color: var(--pitch);
+  font-weight: 700;
+}
+
+.emptyState {
+  padding: 15px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 0 20px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgb(167 50 43 / 34%); }
+  70% { box-shadow: 0 0 0 5px rgb(167 50 43 / 0%); }
+  100% { box-shadow: 0 0 0 0 rgb(167 50 43 / 0%); }
+}
+
+@media (max-width: 900px) {
+  .contentGrid {
+    grid-template-columns: minmax(0, 1fr) minmax(290px, 0.8fr);
+    gap: 22px;
+  }
+
+  .tableSection {
+    padding-left: 20px;
+  }
+}
+
+@media (max-width: 700px) {
+  .page {
+    width: min(100% - 32px, 560px);
+  }
+
+  .masthead {
+    padding: 23px 0 17px;
+  }
+
+  .masthead h1 {
+    font-size: 29px;
+  }
+
+  .contentGrid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 30px;
+    padding-top: 22px;
+  }
+
+  .tableSection {
+    padding: 0;
+    border: 0;
+  }
+
+  .fixtureRow {
+    grid-template-columns: 87px minmax(0, 1fr) 51px;
+    min-height: 58px;
+  }
+
+  .fixtureTeams {
+    font-size: 13px;
+  }
+
+  .table th,
+  .table td {
+    padding-right: 5px;
+    padding-left: 5px;
+  }
+}
+
+@media (max-width: 390px) {
+  .page {
+    width: min(100% - 24px, 560px);
+  }
+
+  .worldSummary {
+    font-size: 11px;
+  }
+
+  .worldSummary strong {
+    font-size: 14px;
+  }
+
+  .hideMobile {
+    display: none;
+  }
+
+  .fixtureState {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 340px) {
+  .hideSmall,
+  .tableUpdated {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot {
+    animation: none;
+  }
+}
