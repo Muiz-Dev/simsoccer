@@ -340,6 +340,35 @@ export const fixturePostMatch = pgTable('fixture_post_match', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+export const adminCredentials = pgTable('admin_credentials', {
+  id: text('id').primaryKey().default('primary'),
+  pinHash: text('pin_hash').notNull(),
+  failedAttempts: integer('failed_attempts').notNull().default(0),
+  lockedUntil: timestamp('locked_until'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});
+
+export const adminSessions = pgTable('admin_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tokenHash: text('token_hash').notNull().unique(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
+  idleExpiresAt: timestamp('idle_expires_at').notNull(),
+  absoluteExpiresAt: timestamp('absolute_expires_at').notNull(),
+  revokedAt: timestamp('revoked_at'),
+});
+
+export const adminAuditLog = pgTable('admin_audit_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  actor: text('actor').notNull(),
+  action: text('action').notNull(),
+  targetType: text('target_type'),
+  targetId: text('target_id'),
+  summary: text('summary').notNull(),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const worldRuntime = pgTable('world_runtime', {
   id: text('id').primaryKey().default('singleton'),
   status: text('status').notNull().default('WAITING_FOR_SEASON'), // RUNNING, RECOVERING, WAITING_FOR_SEASON, DEGRADED, STOPPED

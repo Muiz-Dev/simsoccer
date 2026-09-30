@@ -14,6 +14,7 @@ const envSchema = z.object({
   SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
   SUPABASE_JWKS_URL: z.string().optional(),
+  ADMIN_PIN_PEPPER: z.string().optional(),
 
   ALLOW_UNSAFE_DB: z.string().optional().default('false').transform((val) => val === 'true'),
   ALLOW_UNSAFE_SEEDS: z.string().optional().default('false').transform((val) => val === 'true'),

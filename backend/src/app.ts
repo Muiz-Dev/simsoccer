@@ -4,13 +4,14 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings } from './db/schema/index';
+import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
 import { authenticateJwt, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { calculateAllPreMatchMarkets } from './markets/probability-engine';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { MatchEngine } from './simulation/match-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
 import { eq, and, asc, desc, inArray } from 'drizzle-orm';
+import { ensurePrimaryAdminCredential, hashAdminPin, verifyAdminPin, createAdminSessionToken, hashSessionToken, readAdminSessionTokenFromRequest, getAdminCookieOptions, resolveAdminSession, revokeAdminSession } from './admin/security';
 
 export function createApp() {
   const app = express();
@@ -150,6 +151,126 @@ export function createApp() {
     }));
 
     res.json({ generatedAt: new Date().toISOString(), world, leagues: leagueOverviews });
+  });
+
+  app.post('/api/admin/login', async (req: Request, res: Response) => {
+    try {
+      const { pin } = req.body ?? {};
+      if (typeof pin !== 'string' || pin.trim() === '') {
+        return res.status(400).json({ error: 'INVALID_PIN', message: 'Admin PIN is required.' });
+      }
+
+      const credential = await ensurePrimaryAdminCredential();
+      const now = new Date();
+      if (credential.lockedUntil && new Date(credential.lockedUntil).getTime() > now.getTime()) {
+        return res.status(423).json({ error: 'PIN_LOCKED', message: 'Admin pin is temporarily locked.' });
+      }
+
+      if (!verifyAdminPin(pin, credential.pinHash)) {
+        const failedAttempts = (credential.failedAttempts ?? 0) + 1;
+        const lockoutUntil = failedAttempts >= 5 ? new Date(now.getTime() + 15 * 60 * 1000) : null;
+        await db.update(adminCredentials)
+          .set({
+            failedAttempts,
+            lockedUntil: lockoutUntil,
+            updatedAt: now,
+          })
+          .where(eq(adminCredentials.id, 'primary'));
+
+        return res.status(401).json({ error: 'INVALID_PIN', message: 'Incorrect admin pin.' });
+      }
+
+      await db.update(adminCredentials)
+        .set({
+          failedAttempts: 0,
+          lockedUntil: null,
+          updatedAt: now,
+        })
+        .where(eq(adminCredentials.id, 'primary'));
+
+      const token = createAdminSessionToken('primary');
+      const nowTs = Date.now();
+      const idleExpiresAt = new Date(nowTs + 30 * 60 * 1000);
+      const absoluteExpiresAt = new Date(nowTs + 8 * 60 * 60 * 1000);
+
+      await db.insert(adminSessions).values({
+        tokenHash: hashSessionToken(token),
+        createdAt: now,
+        lastSeenAt: now,
+        idleExpiresAt,
+        absoluteExpiresAt,
+        revokedAt: null,
+      });
+
+      res.cookie('sim_admin_session', token, getAdminCookieOptions());
+      res.json({
+        ok: true,
+        user: { id: 'primary', role: 'admin' },
+        session: {
+          idleExpiresAt: idleExpiresAt.toISOString(),
+          absoluteExpiresAt: absoluteExpiresAt.toISOString(),
+        },
+      });
+    } catch (error: any) {
+      console.error('Admin login failed:', error);
+      res.status(503).json({ error: 'ADMIN_LOGIN_UNAVAILABLE', message: error.message || 'Admin login is unavailable right now.' });
+    }
+  });
+
+  app.post('/api/admin/logout', async (req: Request, res: Response) => {
+    const token = readAdminSessionTokenFromRequest(req);
+    if (token) {
+      await revokeAdminSession(token);
+    }
+
+    res.clearCookie('sim_admin_session', { path: '/' });
+    res.json({ ok: true });
+  });
+
+  app.get('/api/admin/me', async (req: Request, res: Response) => {
+    const token = readAdminSessionTokenFromRequest(req);
+    const session = await resolveAdminSession(token);
+
+    if (!session) {
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Admin session required.' });
+    }
+
+    return res.json({ user: { id: 'primary', role: 'admin' }, session: { id: session.id, idleExpiresAt: session.idleExpiresAt, absoluteExpiresAt: session.absoluteExpiresAt } });
+  });
+
+  app.get('/api/admin/summary', async (req: Request, res: Response) => {
+    const token = readAdminSessionTokenFromRequest(req);
+    const session = await resolveAdminSession(token);
+
+    if (!session) {
+      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Admin session required.' });
+    }
+
+    try {
+      const [world, leaguesList, seasonsList, teamsList, fixturesList, auditRows] = await Promise.all([
+        getWorldStatusInfo(),
+        db.select().from(leagues),
+        db.select().from(seasons),
+        db.select().from(teams),
+        db.select().from(fixtures),
+        db.select().from(adminAuditLog).orderBy(desc(adminAuditLog.createdAt)).limit(20),
+      ]);
+
+      res.json({
+        ok: true,
+        world,
+        counts: {
+          leagues: leaguesList.length,
+          seasons: seasonsList.length,
+          teams: teamsList.length,
+          fixtures: fixturesList.length,
+        },
+        recentAudit: auditRows,
+      });
+    } catch (error: any) {
+      console.error('Admin summary failed:', error);
+      res.status(503).json({ error: 'ADMIN_SUMMARY_UNAVAILABLE', message: error.message || 'Admin summary unavailable.' });
+    }
   });
 
   app.get('/api/health/database', async (req: Request, res: Response) => {
