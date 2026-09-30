@@ -20,7 +20,12 @@ const envSchema = z.object({
 
   TICK_RATE_MS: z.string().default('1000').transform((val) => parseInt(val, 10)),
   MATCH_REAL_DURATION_SECONDS: z.string().default('180').transform((val) => parseInt(val, 10)),
+  MARKET_PREPARATION_BUFFER_SECONDS: z.string().default('120').transform((val) => parseInt(val, 10)),
+  ROUND_BREAK_SECONDS: z.string().default('600').transform((val) => parseInt(val, 10)),
   SIMULATION_VERSION: z.string().default('1.0.0'),
+
+  TEST_DATABASE_URL: z.string().optional(),
+  TEST_REDIS_URL: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

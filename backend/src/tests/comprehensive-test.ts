@@ -1,9 +1,11 @@
 import { MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
+import { checkDependenciesHealth, getWorldStatusInfo } from '../football/coordinator';
+import { env } from '../config/env';
 
 async function runTests() {
-  console.log('🧪 Starting Comprehensive Test Suite...\n');
+  console.log('🧪 Starting Comprehensive Autonomous World Test Suite...\n');
 
   // Test 1: PRNG Determinism Test
   console.log('▶ Test 1: PRNG Determinism & Reproducibility...');
@@ -134,6 +136,49 @@ async function runTests() {
     throw new Error(`❌ Test 5 Failed: MATCH_END second is ${endEv.virtualSecond}, expected 5400!`);
   }
   console.log(`  ✅ Test 5 Passed: Step-by-step match completed 5,400 seconds. Total events: ${liveEvents.length}.\n`);
+
+  // Test 6: Checkpoint Restore & RNG Stream Synchronization
+  console.log('▶ Test 6: Checkpoint Restore & State Resumption...');
+  const engineOriginal = new MatchEngine(input);
+  const stateOriginal = engineOriginal.initializeState();
+
+  // Step 2,700 seconds (halftime)
+  while (stateOriginal.virtualSecond < 2700) {
+    engineOriginal.stepSecond(stateOriginal);
+  }
+
+  const savedVirtualSecond = stateOriginal.virtualSecond;
+  const stateJson = JSON.parse(JSON.stringify(stateOriginal));
+
+  // Resume with new engine instance restored from halftime snapshot
+  const engineResumed = new MatchEngine(input);
+  engineResumed.restoreRngState(stateJson);
+
+  while (!stateJson.isFullTime) {
+    engineResumed.stepSecond(stateJson);
+  }
+
+  // Compare result with full continuous run
+  const engineContinuous = new MatchEngine(input);
+  const resContinuous = engineContinuous.simulate();
+
+  if (stateJson.homeScore !== resContinuous.homeScore || stateJson.awayScore !== resContinuous.awayScore) {
+    throw new Error(`❌ Test 6 Failed: Restored match score ${stateJson.homeScore}-${stateJson.awayScore} does not match continuous run ${resContinuous.homeScore}-${resContinuous.awayScore}`);
+  }
+  console.log(`  ✅ Test 6 Passed: Checkpoint restored at second ${savedVirtualSecond} and produced identical final score (${stateJson.homeScore}-${stateJson.awayScore}).\n`);
+
+  // Test 7: Runtime Status API & Dependency Readiness Verification
+  console.log('▶ Test 7: Runtime Health, Dependency Verification & Status reporting...');
+  const health = await checkDependenciesHealth();
+  console.log(`  📊 Dependencies health check: PostgreSQL=${health.postgres}, Redis=${health.redis}`);
+
+  const statusInfo = await getWorldStatusInfo();
+  console.log(`  📊 World Status: ${statusInfo.status}, Season: ${statusInfo.activeSeasonName || 'None'}, Round: ${statusInfo.currentRound}/${statusInfo.totalRounds}`);
+
+  if (typeof statusInfo.status !== 'string' || typeof statusInfo.isCoordinatorLeader !== 'boolean') {
+    throw new Error('❌ Test 7 Failed: World status info shape is invalid.');
+  }
+  console.log('  ✅ Test 7 Passed: Runtime status and dependency health endpoints validated.\n');
 
   console.log('🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);

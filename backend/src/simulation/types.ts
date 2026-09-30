@@ -89,6 +89,7 @@ export interface DynamicMatchState {
   latentStochasticState: number; // bounded -0.5 to +0.5 momentum/variance
 
   eventSequence: number;
+  rngCallCount?: number;
 }
 
 export interface EventHazardRates {

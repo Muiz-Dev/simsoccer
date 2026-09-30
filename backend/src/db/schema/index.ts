@@ -323,3 +323,18 @@ export const simulationRuns = pgTable('simulation_runs', {
   completedAt: timestamp('completed_at'),
   error: text('error'),
 });
+
+export const worldRuntime = pgTable('world_runtime', {
+  id: text('id').primaryKey().default('singleton'),
+  status: text('status').notNull().default('WAITING_FOR_SEASON'), // RUNNING, RECOVERING, WAITING_FOR_SEASON, DEGRADED, STOPPED
+  activeSeasonId: uuid('active_season_id').references(() => seasons.id),
+  currentRound: integer('current_round').notNull().default(0),
+  totalRounds: integer('total_rounds').notNull().default(38),
+  coordinatorNodeId: text('coordinator_node_id'),
+  heartbeatAt: timestamp('heartbeat_at').notNull().defaultNow(),
+  lastReconciliationAt: timestamp('last_reconciliation_at'),
+  degradedReason: text('degraded_reason'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+});

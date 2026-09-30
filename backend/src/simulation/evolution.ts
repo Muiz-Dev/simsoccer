@@ -9,6 +9,13 @@ import { eq, and } from 'drizzle-orm';
 export async function processPostMatchEvolution(result: SimulationResult) {
   const { fixtureId, homeScore, awayScore, finalState } = result;
 
+  // Guard against duplicate evolution updates for the same fixture
+  const existingHistory = await db.select().from(teamRatingHistory).where(eq(teamRatingHistory.matchId, fixtureId)).limit(1);
+  if (existingHistory.length > 0) {
+    console.log(`ℹ️ Evolution already processed for fixture '${fixtureId}'. Skipping.`);
+    return;
+  }
+
   // 1. Fetch Fixture to retrieve SeasonId and Team IDs
   const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
   if (!fixture) return;
