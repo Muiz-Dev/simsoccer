@@ -4,6 +4,7 @@ import { leagues, seasons, teams, teamRatings, players, fixtures, standings, use
 import { COMPETITIONS_DATA_BY_SEASON } from './data/competitions';
 import { generateDoubleRoundRobin } from './fixture-generator';
 import { eq, and } from 'drizzle-orm';
+import { env } from '../config/env';
 
 export async function seedDatabase(targetSeasonName: string = '2025-2026') {
   verifySafeDatabase(`Seed Database for Season ${targetSeasonName}`);
@@ -137,13 +138,14 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
       console.log(`  📅 Generating 380 fixtures for ${compData.leagueName}...`);
       const pairings = generateDoubleRoundRobin(createdTeamIds.length);
       const now = new Date();
+      const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
 
       const fixturesToInsert = pairings.map((pairing) => ({
         seasonId: seasonRecord.id,
         round: pairing.round,
         homeTeamId: createdTeamIds[pairing.homeTeamIndex] as string,
         awayTeamId: createdTeamIds[pairing.awayTeamIndex] as string,
-        scheduledAt: new Date(now.getTime() + pairing.round * 86400000),
+        scheduledAt: pairing.round === 1 ? firstKickoff : new Date(now.getTime() + pairing.round * 86400000),
         status: 'SCHEDULED',
       }));
 

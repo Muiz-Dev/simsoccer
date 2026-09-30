@@ -11,8 +11,8 @@ export async function settleFixtureBets(fixtureId: string) {
 
   // 1. Fetch fixture & statistics
   const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
-  if (!fixture || fixture.status !== 'FINISHED') {
-    console.log(`⚠️ Fixture '${fixtureId}' is not finished. Skipping settlement.`);
+  if (!fixture || fixture.homeScore === null) {
+    console.log(`⚠️ Fixture '${fixtureId}' has no final score. Skipping settlement.`);
     return;
   }
 

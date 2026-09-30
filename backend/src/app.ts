@@ -31,7 +31,7 @@ export function createApp() {
 
   app.get('/api/health/ready', async (req: Request, res: Response) => {
     const health = await checkDependenciesHealth();
-    if (health.postgres && health.redis) {
+    if (health.postgres && health.redis && health.migrationOk) {
       res.json({ status: 'ready', dependencies: health });
     } else {
       res.status(503).json({ status: 'not_ready', dependencies: health });
