@@ -15,6 +15,13 @@
       "when": 1790761812700,
       "tag": "0001_dear_hex",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790770635619,
+      "tag": "0002_graceful_trish_tilby",
+      "breakpoints": true
     }
   ]
 }

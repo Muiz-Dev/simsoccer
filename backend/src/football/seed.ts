@@ -1,15 +1,58 @@
 import { verifySafeDatabase } from '../db/guard';
 import { db, client } from '../db/index';
 import { leagues, seasons, teams, teamRatings, players, fixtures, standings, users, wallets } from '../db/schema/index';
-import { COMPETITIONS_DATA_BY_SEASON } from './data/competitions';
+import { COMPETITIONS_DATA_BY_SEASON, SeedCompetition } from './data/competitions';
 import { generateDoubleRoundRobin } from './fixture-generator';
 import { eq, and } from 'drizzle-orm';
 import { env } from '../config/env';
 
-export async function seedDatabase(targetSeasonName: string = '2025-2026') {
+export function parseVirtualSeasonName(args: string[] = process.argv.slice(2)): string {
+  const combined = args.filter(Boolean).join(' ').trim();
+  const raw = combined || 'Season 1';
+
+  const normalized = raw.replace(/\s+/g, ' ').trim();
+  const match = /^Season\s*(\d+)$/i.exec(normalized);
+  if (match) {
+    return `Season ${match[1]}`;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return `Season ${normalized}`;
+  }
+
+  if (/^Season\s+\d+\s+\d+$/i.test(normalized)) {
+    const fallback = normalized.split(/\s+/).filter(Boolean).at(-1);
+    if (fallback) return `Season ${fallback}`;
+  }
+
+  throw new Error(`Season name must use the virtual format 'Season N'; received '${normalized}'.`);
+}
+
+export function resolveCompetitionDataset(targetSeasonName: string): Record<string, SeedCompetition> {
+  const directMatch = COMPETITIONS_DATA_BY_SEASON[targetSeasonName];
+  if (directMatch) return directMatch;
+
+  const seasonMatch = /^Season\s+(\d+)$/i.exec(targetSeasonName);
+  if (seasonMatch) {
+    const seasonNumber = Number(seasonMatch[1]);
+    const seasonKeys = Object.keys(COMPETITIONS_DATA_BY_SEASON).sort();
+    const datasetKey = seasonKeys[(seasonNumber - 1) % seasonKeys.length] ?? seasonKeys[0];
+    return COMPETITIONS_DATA_BY_SEASON[datasetKey];
+  }
+
+  return COMPETITIONS_DATA_BY_SEASON['2025-2026'];
+}
+
+export async function seedDatabase(targetSeasonName: string = 'Season 1') {
   verifySafeDatabase(`Seed Database for Season ${targetSeasonName}`);
 
-  const seasonCompetitions = COMPETITIONS_DATA_BY_SEASON[targetSeasonName] || COMPETITIONS_DATA_BY_SEASON['2025-2026'];
+  const seasonMatch = /^Season\s+(\d+)$/i.exec(targetSeasonName);
+  if (!seasonMatch) throw new Error(`Season name must use the virtual format 'Season N'; received '${targetSeasonName}'.`);
+
+  const seasonNumber = Number(seasonMatch[1]);
+  const seasonCompetitions = resolveCompetitionDataset(targetSeasonName);
+  const firstKickoffBase = new Date(Date.now() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
+  let roundOneFixtureIndex = 0;
 
   console.log(`🌱 Starting database seed for season '${targetSeasonName}'...`);
 
@@ -30,7 +73,7 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
   }
 
   for (const [leagueSlug, compData] of Object.entries(seasonCompetitions)) {
-    console.log(`\n🏆 Processing League: ${compData.leagueName} (${compData.country}) — Season ${compData.provenance.season}...`);
+    console.log(`\n🏆 Processing League: ${compData.leagueName} (${compData.country}) — ${targetSeasonName}...`);
     console.log(`   Source: ${compData.provenance.source} (${compData.provenance.sourceUrl})`);
 
     // 1. Get or create league
@@ -53,7 +96,7 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
       [seasonRecord] = await db.insert(seasons).values({
         leagueId: leagueRecord.id,
         name: targetSeasonName,
-        seasonNumber: targetSeasonName === '2026-2027' ? 2 : 1,
+        seasonNumber,
         status: 'SCHEDULED',
         totalRounds: 38,
       }).returning();
@@ -137,15 +180,14 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
     if (existingFixtures.length === 0) {
       console.log(`  📅 Generating 380 fixtures for ${compData.leagueName}...`);
       const pairings = generateDoubleRoundRobin(createdTeamIds.length);
-      const now = new Date();
-      const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
-
       const fixturesToInsert = pairings.map((pairing) => ({
         seasonId: seasonRecord.id,
         round: pairing.round,
         homeTeamId: createdTeamIds[pairing.homeTeamIndex] as string,
         awayTeamId: createdTeamIds[pairing.awayTeamIndex] as string,
-        scheduledAt: pairing.round === 1 ? firstKickoff : new Date(now.getTime() + pairing.round * 86400000),
+        scheduledAt: pairing.round === 1
+          ? new Date(firstKickoffBase.getTime() + roundOneFixtureIndex++ * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000)
+          : new Date(firstKickoffBase.getTime() + pairing.round * 86400000),
         status: 'SCHEDULED',
       }));
 
@@ -162,7 +204,7 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
 }
 
 if (require.main === module) {
-  const selectedSeason = process.argv[2] || '2025-2026';
+  const selectedSeason = parseVirtualSeasonName(process.argv.slice(2));
   seedDatabase(selectedSeason).catch((err) => {
     console.error('❌ Seeding failed:', err);
     process.exitCode = 1;

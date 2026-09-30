@@ -1,0 +1,68 @@
+services:
+  - type: web
+    name: simsoccer-api
+    runtime: node
+    rootDir: backend
+    plan: 1c-2g
+    region: oregon
+    buildCommand: npm install && npm run build
+    preDeployCommand: npm run db:migrate
+    startCommand: node dist/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SIMULATION_VERSION
+        value: "1.0.0"
+
+  - type: worker
+    name: simsoccer-worker
+    runtime: node
+    rootDir: backend
+    plan: 1c-2g
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: node dist/worker.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SIMULATION_VERSION
+        value: "1.0.0"
+
+  - type: pserv
+    name: simsoccer-coordinator
+    runtime: node
+    rootDir: backend
+    plan: 1c-2g
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: node dist/coordinator.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: SIMULATION_VERSION
+        value: "1.0.0"

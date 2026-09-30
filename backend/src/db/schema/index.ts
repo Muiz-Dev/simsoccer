@@ -15,7 +15,7 @@ export const leagues = pgTable('leagues', {
 export const seasons = pgTable('seasons', {
   id: uuid('id').primaryKey().defaultRandom(),
   leagueId: uuid('league_id').notNull().references(() => leagues.id),
-  name: text('name').notNull(), // e.g., "2024-2025", "2025-2026"
+  name: text('name').notNull(), // e.g., "Season 1", "Season 2"; year strings remain accepted as legacy aliases
   seasonNumber: integer('season_number').notNull().default(1),
   status: text('status').notNull().default('DRAFT'), // DRAFT, SCHEDULED, ACTIVE, COMPLETED, CANCELLED
   startAt: timestamp('start_at'),
@@ -25,7 +25,9 @@ export const seasons = pgTable('seasons', {
   simulationVersion: text('simulation_version').notNull().default('1.0.0'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('seasons_league_number_idx').on(table.leagueId, table.seasonNumber),
+]);
 
 export const teams = pgTable('teams', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -328,6 +330,14 @@ export const simulationRuns = pgTable('simulation_runs', {
   startedAt: timestamp('started_at').notNull().defaultNow(),
   completedAt: timestamp('completed_at'),
   error: text('error'),
+});
+
+export const fixturePostMatch = pgTable('fixture_post_match', {
+  fixtureId: uuid('fixture_id').primaryKey().references(() => fixtures.id),
+  evolutionCompleted: boolean('evolution_completed').notNull().default(false),
+  settlementCompleted: boolean('settlement_completed').notNull().default(false),
+  completedAt: timestamp('completed_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
 export const worldRuntime = pgTable('world_runtime', {

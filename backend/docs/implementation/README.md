@@ -15,6 +15,9 @@ SIM SOCCER is a living, deterministic, stateful virtual football engine with an 
 
 The match simulation is executed as an event-by-event stochastic process. Outcomes emerge tick-by-tick from current match state (possession, pressure, momentum, fatigue, card state, scoreline feedback). The engine does **not** precompute a final score or fixed timeline at kickoff.
 
+### Season Model
+The simulation uses a virtual season model rather than real-world calendar years. Seasons are named in a simple progression such as `Season 1`, `Season 2`, `Season 3`, and the runtime treats them as numbered world states rather than historical year labels. Legacy year strings remain supported as compatibility aliases, but the operational model is sequential and virtual.
+
 ---
 
 ## 2. Directory Structure
@@ -134,7 +137,7 @@ npm start
 # Press Ctrl+C to stop both processes.
 ```
 
-For API-only development with automatic reload, use `npm run dev`; start the worker separately with:
+The worker can process up to `SIMULATION_WORKER_CONCURRENCY` matches concurrently (default `30`); tune this to the database capacity. For API-only development with automatic reload, use `npm run dev`; start the worker separately with:
 ```bash
 npm run worker
 ```
@@ -145,7 +148,7 @@ With the worker running, enqueue one scheduled fixture by ID. This uses the seas
 EXPLICIT_TEST_DB_CONFIRMED=true npm run simulate:fixture -- <fixture-id>
 ```
 
-**Current limitation:** starting both services does not make the season autonomous yet. Fixtures are not automatically scheduled or enqueued; use the one-fixture command above. Automatic fixture scheduling, round progression, and season completion remain unimplemented.
+With a seeded active season, the coordinator schedules fixtures and advances rounds automatically. Season membership is based on the configured virtual club data; promotion/relegation rules are not modeled yet.
 
 ---
 

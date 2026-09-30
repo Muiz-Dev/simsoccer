@@ -2,7 +2,7 @@ import postgres from 'postgres';
 import Redis from 'ioredis';
 import { db } from '../db/index';
 import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, teamRatings, standings } from '../db/schema/index';
-import { eq, and, sql, asc, desc } from 'drizzle-orm';
+import { eq, and, or, sql, asc, desc, inArray } from 'drizzle-orm';
 import { env } from '../config/env';
 import { simulationQueue } from '../workers/queues';
 import { buildSimulationInput } from './match-input';
@@ -184,99 +184,77 @@ export async function updateRuntimeHeartbeat(
   }
 }
 
-/**
- * Automatically creates and seeds the next season for a given league when previous season finishes.
- */
-async function autoCreateNextSeason(leagueRecord: any, previousSeason: any) {
-  const nextSeasonNumber = previousSeason.seasonNumber + 1;
-  let nextSeasonName = `Season ${nextSeasonNumber}`;
+/** Creates every competition's next numbered season in one transaction. */
+async function createNextWorldSeasons(previousWorldSeasons: Array<{ league: any; season: any }>) {
+  const nextSeasonNumber = Math.max(...previousWorldSeasons.map(({ season }) => season.seasonNumber)) + 1;
+  const now = new Date();
+  const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
 
-  if (previousSeason.name && previousSeason.name.includes('-')) {
-    const parts = previousSeason.name.split('-');
-    const startYear = parseInt(parts[0], 10);
-    const endYear = parseInt(parts[1], 10);
-    if (!isNaN(startYear) && !isNaN(endYear)) {
-      nextSeasonName = `${startYear + 1}-${endYear + 1}`;
-    }
-  }
+  return db.transaction(async (tx) => {
+    const createdSeasons = [];
+    let roundOneFixtureIndex = 0;
 
-  const leagueTeams = await db.select().from(teams).where(and(eq(teams.leagueId, leagueRecord.id), eq(teams.active, true)));
-  if (leagueTeams.length === 0 || leagueTeams.length % 2 !== 0) {
-    console.warn(`⚠️ [WORLD COORDINATOR] Cannot auto-create season for '${leagueRecord.name}': missing or odd team count (${leagueTeams.length}). Waiting for official data.`);
-    return null;
-  }
+    for (const { league, season: previousSeason } of previousWorldSeasons) {
+      const leagueTeams = await tx.select().from(teams)
+        .where(and(eq(teams.leagueId, league.id), eq(teams.active, true)))
+        .orderBy(asc(teams.slug));
+      if (leagueTeams.length === 0 || leagueTeams.length % 2 !== 0) {
+        throw new Error(`Cannot create Season ${nextSeasonNumber} for ${league.name}: configured clubs are missing or have an odd team count.`);
+      }
 
-  const existingSeason = await db.select().from(seasons).where(and(
-    eq(seasons.leagueId, leagueRecord.id),
-    eq(seasons.seasonNumber, nextSeasonNumber)
-  )).limit(1);
-
-  if (existingSeason.length > 0) {
-    return existingSeason[0];
-  }
-
-  return await db.transaction(async (tx) => {
-    const totalRounds = (leagueTeams.length - 1) * 2;
-    const [newSeason] = await tx
-      .insert(seasons)
-      .values({
-        leagueId: leagueRecord.id,
-        name: nextSeasonName,
+      const totalRounds = (leagueTeams.length - 1) * 2;
+      const [newSeason] = await tx.insert(seasons).values({
+        leagueId: league.id,
+        name: `Season ${nextSeasonNumber}`,
         seasonNumber: nextSeasonNumber,
         status: 'ACTIVE',
-        startAt: new Date(),
+        startAt: now,
         currentRound: 1,
         totalRounds,
-      })
-      .returning();
+      }).returning();
+      createdSeasons.push(newSeason);
 
-    for (const team of leagueTeams) {
-      await tx.insert(standings).values({
-        seasonId: newSeason.id,
-        teamId: team.id,
-      }).onConflictDoNothing();
+      for (const team of leagueTeams) {
+        const [previousRating] = await tx.select().from(teamRatings).where(
+          and(eq(teamRatings.seasonId, previousSeason.id), eq(teamRatings.teamId, team.id))
+        );
+        if (!previousRating) throw new Error(`Missing prior-season rating for ${team.name} in ${league.name}.`);
 
-      const [prevRating] = await tx
-        .select()
-        .from(teamRatings)
-        .where(and(eq(teamRatings.seasonId, previousSeason.id), eq(teamRatings.teamId, team.id)));
-
-      if (prevRating) {
+        await tx.insert(standings).values({ seasonId: newSeason.id, teamId: team.id });
         await tx.insert(teamRatings).values({
           teamId: team.id,
           seasonId: newSeason.id,
-          overallAbility: prevRating.overallAbility,
-          attackStrength: prevRating.attackStrength,
-          defenseStrength: prevRating.defenseStrength,
-          creationRating: prevRating.creationRating,
-          finishingRating: prevRating.finishingRating,
-          goalkeepingRating: prevRating.goalkeepingRating,
-          pressingRating: prevRating.pressingRating,
-          disciplineRating: prevRating.disciplineRating,
-          homeAdvantage: prevRating.homeAdvantage,
-        }).onConflictDoNothing();
+          overallAbility: previousRating.overallAbility,
+          attackStrength: previousRating.attackStrength,
+          defenseStrength: previousRating.defenseStrength,
+          creationRating: previousRating.creationRating,
+          finishingRating: previousRating.finishingRating,
+          goalkeepingRating: previousRating.goalkeepingRating,
+          pressingRating: previousRating.pressingRating,
+          disciplineRating: previousRating.disciplineRating,
+          homeAdvantage: previousRating.homeAdvantage,
+        });
+      }
+
+      const pairings = generateDoubleRoundRobin(leagueTeams.length);
+      const fixturesToInsert = pairings.map((pairing) => ({
+        seasonId: newSeason.id,
+        round: pairing.round,
+        homeTeamId: leagueTeams[pairing.homeTeamIndex].id,
+        awayTeamId: leagueTeams[pairing.awayTeamIndex].id,
+        scheduledAt: pairing.round === 1
+          ? new Date(firstKickoff.getTime() + roundOneFixtureIndex++ * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000)
+          : new Date(firstKickoff.getTime() + pairing.round * 86400000),
+        status: 'SCHEDULED',
+      }));
+
+      for (let i = 0; i < fixturesToInsert.length; i += 100) {
+        await tx.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));
       }
     }
 
-    const pairings = generateDoubleRoundRobin(leagueTeams.length);
-    const now = new Date();
-    const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
-
-    const fixturesToInsert = pairings.map((pairing) => ({
-      seasonId: newSeason.id,
-      round: pairing.round,
-      homeTeamId: leagueTeams[pairing.homeTeamIndex].id,
-      awayTeamId: leagueTeams[pairing.awayTeamIndex].id,
-      scheduledAt: pairing.round === 1 ? firstKickoff : new Date(now.getTime() + pairing.round * 86400000),
-      status: 'SCHEDULED',
-    }));
-
-    for (let i = 0; i < fixturesToInsert.length; i += 100) {
-      await tx.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));
-    }
-
-    console.log(`⚽ [WORLD COORDINATOR] Created and activated next season '${newSeason.name}' for league '${leagueRecord.name}' (${fixturesToInsert.length} fixtures scheduled).`);
-    return newSeason;
+    console.log(`🌍 [WORLD COORDINATOR] Created Season ${nextSeasonNumber} for ${createdSeasons.length} competitions in one transaction.`);
+    return createdSeasons;
   });
 }
 
@@ -321,7 +299,7 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
   const now = new Date();
   lastReconciliationTime = now;
 
-  const allLeagues = await db.select().from(leagues).where(eq(leagues.active, true));
+  const allLeagues = await db.select().from(leagues).where(eq(leagues.active, true)).orderBy(asc(leagues.slug));
 
   if (allLeagues.length === 0) {
     currentStatus = 'WAITING_FOR_SEASON';
@@ -330,159 +308,153 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
     return;
   }
 
-  let anyLeagueRunning = false;
-  let firstActiveSeasonId: string | null = null;
-  let firstActiveRound = 0;
-  let firstTotalRounds = 38;
-
+  const worldSeasons: Array<{ league: any; season: any }> = [];
   for (const league of allLeagues) {
-    // 1. Find active season or scheduled season for this league
-    const activeSeasons = await db
+    const [activeSeason] = await db
       .select()
       .from(seasons)
       .where(and(eq(seasons.leagueId, league.id), eq(seasons.status, 'ACTIVE')))
       .limit(1);
 
-    let currentSeason = activeSeasons[0];
-
-    if (!currentSeason) {
-      const scheduledSeasons = await db
+    const [scheduledSeason] = activeSeason ? [] : await db
         .select()
         .from(seasons)
         .where(and(eq(seasons.leagueId, league.id), eq(seasons.status, 'SCHEDULED')))
-        .limit(1);
+    const season = activeSeason || scheduledSeason;
+    if (season) worldSeasons.push({ league, season });
+  }
 
-      if (scheduledSeasons.length > 0) {
-        currentSeason = scheduledSeasons[0];
-        await db.update(seasons).set({ status: 'ACTIVE', startAt: new Date() }).where(eq(seasons.id, currentSeason.id));
-        currentSeason.status = 'ACTIVE';
-        console.log(`⚽ [WORLD COORDINATOR] Activated season '${currentSeason.name}' for league '${league.name}'`);
-      } else {
-        // Try auto-creating next season if a completed season exists
-        const [lastCompleted] = await db
-          .select()
-          .from(seasons)
+  if (worldSeasons.length !== allLeagues.length) {
+    if (worldSeasons.length === 0) {
+      const completedWorld: Array<{ league: any; season: any }> = [];
+      for (const league of allLeagues) {
+        const [completedSeason] = await db.select().from(seasons)
           .where(and(eq(seasons.leagueId, league.id), eq(seasons.status, 'COMPLETED')))
-          .orderBy(desc(seasons.seasonNumber))
-          .limit(1);
-
-        if (lastCompleted) {
-          const created = await autoCreateNextSeason(league, lastCompleted);
-          if (created) {
-            currentSeason = created;
-          }
-        }
+          .orderBy(desc(seasons.seasonNumber)).limit(1);
+        if (!completedSeason) break;
+        completedWorld.push({ league, season: completedSeason });
       }
-    }
-
-    if (!currentSeason) {
-      continue;
-    }
-
-    if (!firstActiveSeasonId) {
-      firstActiveSeasonId = currentSeason.id;
-      firstActiveRound = currentSeason.currentRound;
-      firstTotalRounds = currentSeason.totalRounds;
-    }
-
-    // 2. Fetch all fixtures for this league season
-    const seasonFixtures = await db
-      .select()
-      .from(fixtures)
-      .where(eq(fixtures.seasonId, currentSeason.id))
-      .orderBy(asc(fixtures.round), asc(fixtures.scheduledAt));
-
-    if (seasonFixtures.length === 0) {
-      continue;
-    }
-
-    anyLeagueRunning = true;
-
-    let activeRound = currentSeason.currentRound;
-    if (activeRound === 0) {
-      activeRound = 1;
-      await db.update(seasons).set({ currentRound: 1 }).where(eq(seasons.id, currentSeason.id));
-    }
-
-    const roundFixtures = seasonFixtures.filter((f) => f.round === activeRound);
-
-    // Schedule kickoffs for active round fixtures if unscheduled/far future
-    for (const f of roundFixtures) {
-      if (f.status === 'SCHEDULED' && f.scheduledAt > now && f.scheduledAt.getTime() - now.getTime() > (env.MARKET_PREPARATION_BUFFER_SECONDS * 1000 + 5000)) {
-        const nextKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
-        await db.update(fixtures).set({ scheduledAt: nextKickoff, updatedAt: new Date() }).where(eq(fixtures.id, f.id));
-        f.scheduledAt = nextKickoff;
-      }
-    }
-
-    // Check if current round is complete
-    const uncompletedInRound = roundFixtures.filter((f) => f.status !== 'FINISHED' && f.status !== 'CANCELLED');
-
-    if (uncompletedInRound.length === 0 && roundFixtures.length > 0) {
-      const maxFinishedAt = roundFixtures.reduce((latest: Date | null, f) => {
-        if (!f.finishedAt) return latest;
-        return !latest || f.finishedAt > latest ? f.finishedAt : latest;
-      }, null);
-
-      const roundBreakMs = env.ROUND_BREAK_SECONDS * 1000;
-      const canAdvanceAt = maxFinishedAt ? new Date(maxFinishedAt.getTime() + roundBreakMs) : now;
-
-      if (now >= canAdvanceAt) {
-        if (activeRound < currentSeason.totalRounds) {
-          const nextRound = activeRound + 1;
-          console.log(`🏆 [WORLD COORDINATOR] Round ${activeRound} completed for league '${league.name}'. Advancing to Round ${nextRound}...`);
-
-          const nextRoundFixtures = seasonFixtures.filter((f) => f.round === nextRound);
-          const nextKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
-
-          for (const f of nextRoundFixtures) {
-            if (f.scheduledAt <= now || f.scheduledAt.getTime() - now.getTime() > 1000 * 60 * 60 * 24) {
-              await db.update(fixtures).set({ scheduledAt: nextKickoff, updatedAt: new Date() }).where(eq(fixtures.id, f.id));
-              f.scheduledAt = nextKickoff;
-            }
-          }
-
-          await db.update(seasons).set({ currentRound: nextRound }).where(eq(seasons.id, currentSeason.id));
-          activeRound = nextRound;
-        } else {
-          console.log(`🎉 [WORLD COORDINATOR] All ${currentSeason.totalRounds} rounds completed for League '${league.name}' Season '${currentSeason.name}'!`);
-          await db.update(seasons).set({ status: 'COMPLETED', endAt: new Date() }).where(eq(seasons.id, currentSeason.id));
-
-          // Attempt auto-creation of next season immediately
-          await autoCreateNextSeason(league, currentSeason);
-        }
-      }
-    }
-
-    // Process markets and match kickoffs for active round
-    const currentRoundFixtures = seasonFixtures.filter((f) => f.round === activeRound);
-
-    for (const f of currentRoundFixtures) {
-      if (f.status === 'SCHEDULED') {
-        const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, f.id));
-        if (existingMarkets.length === 0) {
-          await prepareFixtureMarkets(f.id, f.seasonId, f.homeTeamId, f.awayTeamId);
-        }
-
-        if (f.scheduledAt <= now) {
-          await db.update(markets).set({ status: 'CLOSED', updatedAt: new Date() }).where(eq(markets.fixtureId, f.id));
-          await triggerOrCatchUpMatch(f);
-        }
-      } else if (f.status === 'LIVE') {
-        await triggerOrCatchUpMatch(f);
+      if (completedWorld.length === allLeagues.length && new Set(completedWorld.map(({ season }) => season.seasonNumber)).size === 1) {
+        const created = await createNextWorldSeasons(completedWorld);
+        worldSeasons.push(...allLeagues.map((league, index) => ({ league, season: created[index] })));
       }
     }
   }
 
-  if (anyLeagueRunning) {
-    currentStatus = 'RUNNING';
-    degradedReasonStr = null;
-    await updateRuntimeHeartbeat('RUNNING', firstActiveSeasonId, firstActiveRound, firstTotalRounds, null);
-  } else {
+  if (worldSeasons.length !== allLeagues.length) {
     currentStatus = 'WAITING_FOR_SEASON';
-    degradedReasonStr = 'All leagues are waiting for season data.';
+    degradedReasonStr = 'A complete matching season is required for every active competition.';
     await updateRuntimeHeartbeat('WAITING_FOR_SEASON', null, 0, 38, degradedReasonStr);
+    return;
   }
+
+  const seasonNumbers = new Set(worldSeasons.map(({ season }) => season.seasonNumber));
+  const totalRoundCounts = new Set(worldSeasons.map(({ season }) => season.totalRounds));
+  if (seasonNumbers.size !== 1 || totalRoundCounts.size !== 1) {
+    currentStatus = 'DEGRADED';
+    degradedReasonStr = 'Active competitions do not share the same season number and round count.';
+    await updateRuntimeHeartbeat('DEGRADED', null, 0, 38, degradedReasonStr);
+    return;
+  }
+
+  const seasonIds = worldSeasons.map(({ season }) => season.id);
+  const [runtimeRow] = await db.select().from(worldRuntime).where(eq(worldRuntime.id, 'singleton'));
+  let worldRound = runtimeRow?.currentRound || Math.min(...worldSeasons.map(({ season }) => Math.max(1, season.currentRound)));
+  worldRound = Math.max(1, worldRound);
+
+  for (const { league, season } of worldSeasons) {
+    if (season.status === 'SCHEDULED' || season.currentRound !== worldRound) {
+      await db.update(seasons).set({
+        status: 'ACTIVE',
+        startAt: season.startAt || now,
+        currentRound: worldRound,
+      }).where(eq(seasons.id, season.id));
+      season.status = 'ACTIVE';
+      season.currentRound = worldRound;
+      if (season.status === 'SCHEDULED') console.log(`⚽ [WORLD COORDINATOR] Activated ${season.name} for ${league.name}`);
+    }
+  }
+
+  const firstSeason = worldSeasons[0].season;
+  const totalRounds = firstSeason.totalRounds;
+  const allFixtures = await db.select().from(fixtures)
+    .where(inArray(fixtures.seasonId, seasonIds))
+    .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
+  const roundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound);
+
+  if (roundFixtures.length === 0) {
+    currentStatus = 'DEGRADED';
+    degradedReasonStr = `No fixtures exist for shared world round ${worldRound}.`;
+    await updateRuntimeHeartbeat('DEGRADED', firstSeason.id, worldRound, totalRounds, degradedReasonStr);
+    return;
+  }
+
+  const uncompletedFixtures = roundFixtures.filter((fixture) => fixture.status !== 'FINISHED' && fixture.status !== 'CANCELLED');
+  if (uncompletedFixtures.length === 0) {
+    const latestFinish = roundFixtures.reduce((latest: Date | null, fixture) => {
+      if (!fixture.finishedAt) return latest;
+      return !latest || fixture.finishedAt > latest ? fixture.finishedAt : latest;
+    }, null);
+    const nextRoundAt = new Date((latestFinish || now).getTime() + env.ROUND_BREAK_SECONDS * 1000);
+
+    if (now >= nextRoundAt) {
+      if (worldRound < totalRounds) {
+        const nextRound = worldRound + 1;
+        const nextFixtures = allFixtures.filter((fixture) => fixture.round === nextRound && fixture.status === 'SCHEDULED');
+        let fixtureIndex = 0;
+        for (const fixture of nextFixtures) {
+          const scheduledAt = new Date(nextRoundAt.getTime() + fixtureIndex++ * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000);
+          await db.update(fixtures).set({ scheduledAt, updatedAt: now }).where(eq(fixtures.id, fixture.id));
+          fixture.scheduledAt = scheduledAt;
+        }
+        await db.transaction(async (tx) => {
+          await tx.update(seasons).set({ currentRound: nextRound }).where(inArray(seasons.id, seasonIds));
+          await tx.insert(worldRuntime).values({
+            id: 'singleton', status: 'RUNNING', activeSeasonId: firstSeason.id,
+            currentRound: nextRound, totalRounds, heartbeatAt: now,
+            lastReconciliationAt: now, coordinatorNodeId: NODE_ID, updatedAt: now,
+          }).onConflictDoUpdate({
+            target: worldRuntime.id,
+            set: { status: 'RUNNING', activeSeasonId: firstSeason.id, currentRound: nextRound, totalRounds,
+              heartbeatAt: now, lastReconciliationAt: now, coordinatorNodeId: NODE_ID, degradedReason: null, updatedAt: now },
+          });
+        });
+        worldRound = nextRound;
+        console.log(`🌍 [WORLD COORDINATOR] Shared Round ${nextRound - 1} completed across ${allLeagues.length} competitions; Round ${nextRound} begins at ${nextRoundAt.toISOString()}.`);
+      } else {
+        const previousWorldSeasons = worldSeasons;
+        await db.update(seasons).set({ status: 'COMPLETED', endAt: now }).where(inArray(seasons.id, seasonIds));
+        await createNextWorldSeasons(previousWorldSeasons);
+        currentStatus = 'RECOVERING';
+        await updateRuntimeHeartbeat('RECOVERING', null, 0, totalRounds, 'Created the next numbered world season.');
+        return;
+      }
+    }
+  }
+
+  const currentRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound);
+  const marketOpenAt = env.MARKET_PREPARATION_BUFFER_SECONDS * 1000;
+  for (const fixture of currentRoundFixtures) {
+    if (fixture.status === 'SCHEDULED') {
+      if (fixture.scheduledAt.getTime() - now.getTime() <= marketOpenAt) {
+        const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixture.id));
+        if (existingMarkets.length === 0) {
+          await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+        }
+      }
+
+      if (fixture.scheduledAt <= now) {
+        await db.update(markets).set({ status: 'CLOSED', updatedAt: now }).where(eq(markets.fixtureId, fixture.id));
+        await triggerOrCatchUpMatch(fixture);
+      }
+    } else if (fixture.status === 'LIVE') {
+      await triggerOrCatchUpMatch(fixture);
+    }
+  }
+
+  currentStatus = 'RUNNING';
+  degradedReasonStr = null;
+  await updateRuntimeHeartbeat('RUNNING', firstSeason.id, worldRound, totalRounds, null);
 }
 
 async function prepareFixtureMarkets(fixtureId: string, seasonId: string, homeTeamId: string, awayTeamId: string) {

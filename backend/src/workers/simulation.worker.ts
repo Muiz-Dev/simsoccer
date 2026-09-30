@@ -112,11 +112,12 @@ export async function executeLiveMatchSimulation(options: {
     const totalRealMs = env.MATCH_REAL_DURATION_SECONDS * 1000;
     const kickoffTime = new Date(actualStartedAt).getTime();
 
-    // Step second-by-second
+    // Advance in bounded batches to the wall-clock target without sleeping once per virtual second.
     while (!state.isFullTime) {
+      let targetVirtualSecond = 5400;
       if (!fastMode) {
         const elapsedRealMs = Math.max(0, Date.now() - kickoffTime);
-        const targetVirtualSecond = Math.min(5400, Math.floor((elapsedRealMs / totalRealMs) * 5400));
+        targetVirtualSecond = Math.min(5400, Math.floor((elapsedRealMs / totalRealMs) * 5400));
 
         // If engine is caught up with real wall-clock time, sleep briefly
         if (state.virtualSecond >= targetVirtualSecond && targetVirtualSecond < 5400) {
@@ -126,67 +127,73 @@ export async function executeLiveMatchSimulation(options: {
         }
       }
 
-      const stepEvents = engine.stepSecond(state);
+      const stepsToAdvance = fastMode
+        ? 5400 - state.virtualSecond
+        : Math.min(30, targetVirtualSecond - state.virtualSecond);
 
-      for (const ev of stepEvents) {
-        if (!existingSequences.has(ev.sequence)) {
-          existingSequences.add(ev.sequence);
-          allEvents.push(ev);
+      for (let step = 0; step < stepsToAdvance && !state.isFullTime; step++) {
+        const stepEvents = engine.stepSecond(state);
 
-          // Idempotent commit before broadcast
-          await db
-            .insert(matchEvents)
-            .values({
-              fixtureId,
-              sequence: ev.sequence,
-              virtualMinute: ev.virtualMinute,
-              virtualSecond: ev.virtualSecond,
-              eventType: ev.eventType,
-              teamId: ev.teamId,
-              playerId: ev.playerId,
-              metadata: ev.metadata,
-            })
-            .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.sequence] });
+        for (const ev of stepEvents) {
+          if (!existingSequences.has(ev.sequence)) {
+            existingSequences.add(ev.sequence);
+            allEvents.push(ev);
 
-          // Broadcast event chronologically via WebSocket
-          broadcastMatchEvent(fixtureId, ev);
+            // Idempotent commit before broadcast
+            await db
+              .insert(matchEvents)
+              .values({
+                fixtureId,
+                sequence: ev.sequence,
+                virtualMinute: ev.virtualMinute,
+                virtualSecond: ev.virtualSecond,
+                eventType: ev.eventType,
+                teamId: ev.teamId,
+                playerId: ev.playerId,
+                metadata: ev.metadata,
+              })
+              .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.sequence] });
+
+            // Broadcast event chronologically via WebSocket
+            broadcastMatchEvent(fixtureId, ev);
+          }
         }
-      }
 
-      // Checkpoint snapshot saving (every 300 seconds or key events)
-      const isKeyEvent = stepEvents.some((e) => ['GOAL', 'RED_CARD', 'HALFTIME', 'MATCH_END'].includes(e.eventType));
-      if (state.virtualSecond % 300 === 0 || isKeyEvent) {
-        await db
-          .insert(matchSnapshots)
-          .values({
-            matchId: matchRecord.id,
-            virtualSecond: state.virtualSecond,
-            matchStateJson: state as any,
-          })
-          .onConflictDoNothing({ target: [matchSnapshots.matchId, matchSnapshots.virtualSecond] });
-      }
+        // Checkpoint snapshot saving (every 300 seconds or key events)
+        const isKeyEvent = stepEvents.some((e) => ['GOAL', 'RED_CARD', 'HALFTIME', 'MATCH_END'].includes(e.eventType));
+        if (state.virtualSecond % 300 === 0 || isKeyEvent) {
+          await db
+            .insert(matchSnapshots)
+            .values({
+              matchId: matchRecord.id,
+              virtualSecond: state.virtualSecond,
+              matchStateJson: state as any,
+            })
+            .onConflictDoNothing({ target: [matchSnapshots.matchId, matchSnapshots.virtualSecond] });
+        }
 
-      // Update match live status periodically
-      if (stepEvents.length > 0 || state.virtualSecond % 60 === 0 || state.isFullTime) {
-        await db
-          .update(matches)
-          .set({
-            homeScore: state.homeScore,
-            awayScore: state.awayScore,
-            virtualSecond: state.virtualSecond,
-            status: state.status,
-            updatedAt: new Date(),
-          })
-          .where(eq(matches.fixtureId, fixtureId));
+        // Update match live status periodically
+        if (stepEvents.length > 0 || state.virtualSecond % 60 === 0 || state.isFullTime) {
+          await db
+            .update(matches)
+            .set({
+              homeScore: state.homeScore,
+              awayScore: state.awayScore,
+              virtualSecond: state.virtualSecond,
+              status: state.status,
+              updatedAt: new Date(),
+            })
+            .where(eq(matches.fixtureId, fixtureId));
 
-        await db
-          .update(fixtures)
-          .set({
-            homeScore: state.homeScore,
-            awayScore: state.awayScore,
-            updatedAt: new Date(),
-          })
-          .where(eq(fixtures.id, fixtureId));
+          await db
+            .update(fixtures)
+            .set({
+              homeScore: state.homeScore,
+              awayScore: state.awayScore,
+              updatedAt: new Date(),
+            })
+            .where(eq(fixtures.id, fixtureId));
+        }
       }
 
       if (fastMode && tickDelayMs > 0) {
@@ -307,5 +314,5 @@ export const simulationWorker = new Worker(
       tickDelayMs: tickDelayMs ?? 0,
     });
   },
-  { connection: redisConnection }
+  { connection: redisConnection, concurrency: env.SIMULATION_WORKER_CONCURRENCY }
 );

@@ -19,8 +19,10 @@ const envSchema = z.object({
   ALLOW_UNSAFE_SEEDS: z.string().optional().default('false').transform((val) => val === 'true'),
 
   TICK_RATE_MS: z.string().default('1000').transform((val) => parseInt(val, 10)),
-  MATCH_REAL_DURATION_SECONDS: z.string().default('180').transform((val) => parseInt(val, 10)),
+  MATCH_REAL_DURATION_SECONDS: z.string().default('5400').transform((val) => parseInt(val, 10)),
+  SIMULATION_WORKER_CONCURRENCY: z.string().default('30').transform((val) => parseInt(val, 10)),
   MARKET_PREPARATION_BUFFER_SECONDS: z.string().default('120').transform((val) => parseInt(val, 10)),
+  FIXTURE_KICKOFF_STAGGER_SECONDS: z.string().default('60').transform((val) => parseInt(val, 10)),
   ROUND_BREAK_SECONDS: z.string().default('600').transform((val) => parseInt(val, 10)),
   SIMULATION_VERSION: z.string().default('1.0.0'),
 

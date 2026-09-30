@@ -2,6 +2,7 @@ import { MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from '../football/coordinator';
+import { parseVirtualSeasonName, resolveCompetitionDataset } from '../football/seed';
 import { env } from '../config/env';
 
 async function runTests() {
@@ -195,6 +196,29 @@ async function runTests() {
   } else {
     console.log('  ℹ️ Test 8 Skipped: Database or migration unavailable in current environment (unit test mode).');
   }
+
+  // Test 9: Virtual season naming should work without a real-world calendar year
+  console.log('▶ Test 9: Virtual Season Naming Compatibility...');
+  const seasonOneDataset = resolveCompetitionDataset('Season 1');
+  const seasonTwoDataset = resolveCompetitionDataset('Season 2');
+  const legacyYearDataset = resolveCompetitionDataset('2025-2026');
+
+  if (!seasonOneDataset || !seasonTwoDataset || !legacyYearDataset) {
+    throw new Error('❌ Test 9 Failed: virtual or legacy season resolution returned an invalid dataset.');
+  }
+
+  if (!seasonOneDataset['premier-league'] || !seasonTwoDataset['premier-league']) {
+    throw new Error('❌ Test 9 Failed: virtual season datasets do not include the expected competitions.');
+  }
+
+  if (parseVirtualSeasonName(['Season', '1']) !== 'Season 1') {
+    throw new Error('❌ Test 9 Failed: CLI parsing split virtual season arguments incorrectly.');
+  }
+
+  if (seasonOneDataset['premier-league'].teams.length !== legacyYearDataset['premier-league'].teams.length) {
+    throw new Error('❌ Test 9 Failed: Season dataset compatibility changed the competition roster size.');
+  }
+  console.log('  ✅ Test 9 Passed: Virtual Season 1/2 naming resolves to the canonical competition dataset and remains compatible with legacy season keys.');
 
   console.log('\n🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);
