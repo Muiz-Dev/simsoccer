@@ -7,12 +7,12 @@ import { settleFixtureBets } from '../betting/settlement';
 import { broadcastMatchEvent } from '../realtime/websocket';
 import { db } from '../db/index';
 import { fixtures, matches, matchEvents, matchSnapshots, matchStatistics, simulationRuns } from '../db/schema/index';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { SimulationResult, LiveMatchEvent, DynamicMatchState } from '../simulation/types';
 import { env } from '../config/env';
 
 /**
- * Executes a step-by-step live match simulation with checkpoint restoration & timestamp wall-clock mapping.
+ * Executes a step-by-step live match simulation with checkpoint restoration & UTC wall-clock mapping.
  */
 export async function executeLiveMatchSimulation(options: {
   fixtureId: string;
@@ -20,9 +20,9 @@ export async function executeLiveMatchSimulation(options: {
   fastMode?: boolean;
   tickDelayMs?: number;
 }): Promise<SimulationResult> {
-  const { fixtureId, input, fastMode = true, tickDelayMs = 0 } = options;
+  const { fixtureId, input, fastMode = false, tickDelayMs = 0 } = options;
 
-  console.log(`\n⚙️ [MATCH ENGINE] Starting live step-by-step simulation for fixture '${fixtureId}'...`);
+  console.log(`\n⚙️ [MATCH ENGINE] Executing live simulation for fixture '${fixtureId}' (fastMode=${fastMode})...`);
 
   const [simRun] = await db
     .insert(simulationRuns)
@@ -44,13 +44,15 @@ export async function executeLiveMatchSimulation(options: {
     if (!fixture) throw new Error(`Fixture ${fixtureId} not found`);
 
     const actualStartedAt = fixture.startedAt || new Date();
-    await db
-      .update(fixtures)
-      .set({
-        status: 'LIVE',
-        startedAt: actualStartedAt,
-      })
-      .where(eq(fixtures.id, fixtureId));
+    if (!fixture.startedAt) {
+      await db
+        .update(fixtures)
+        .set({
+          status: 'LIVE',
+          startedAt: actualStartedAt,
+        })
+        .where(eq(fixtures.id, fixtureId));
+    }
 
     // 2. Initialize or retrieve match record
     let [matchRecord] = await db.select().from(matches).where(eq(matches.fixtureId, fixtureId));
@@ -108,13 +110,15 @@ export async function executeLiveMatchSimulation(options: {
     }));
 
     const totalRealMs = env.MATCH_REAL_DURATION_SECONDS * 1000;
+    const kickoffTime = fixture.scheduledAt ? new Date(fixture.scheduledAt).getTime() : new Date(actualStartedAt).getTime();
 
     // Step second-by-second
     while (!state.isFullTime) {
       if (!fastMode) {
-        const elapsedRealMs = Math.max(0, Date.now() - new Date(actualStartedAt).getTime());
+        const elapsedRealMs = Math.max(0, Date.now() - kickoffTime);
         const targetVirtualSecond = Math.min(5400, Math.floor((elapsedRealMs / totalRealMs) * 5400));
 
+        // If engine is caught up with real wall-clock time, sleep briefly
         if (state.virtualSecond >= targetVirtualSecond && targetVirtualSecond < 5400) {
           const sleepMs = tickDelayMs > 0 ? tickDelayMs : 250;
           await new Promise((resolve) => setTimeout(resolve, sleepMs));
@@ -129,31 +133,37 @@ export async function executeLiveMatchSimulation(options: {
           existingSequences.add(ev.sequence);
           allEvents.push(ev);
 
-          // Commit event to DB before broadcasting
-          await db.insert(matchEvents).values({
-            fixtureId,
-            sequence: ev.sequence,
-            virtualMinute: ev.virtualMinute,
-            virtualSecond: ev.virtualSecond,
-            eventType: ev.eventType,
-            teamId: ev.teamId,
-            playerId: ev.playerId,
-            metadata: ev.metadata,
-          });
+          // Idempotent commit before broadcast
+          await db
+            .insert(matchEvents)
+            .values({
+              fixtureId,
+              sequence: ev.sequence,
+              virtualMinute: ev.virtualMinute,
+              virtualSecond: ev.virtualSecond,
+              eventType: ev.eventType,
+              teamId: ev.teamId,
+              playerId: ev.playerId,
+              metadata: ev.metadata,
+            })
+            .onConflictDoNothing({ target: [matchEvents.fixtureId, matchEvents.sequence] });
 
           // Broadcast event chronologically via WebSocket
           broadcastMatchEvent(fixtureId, ev);
         }
       }
 
-      // Checkpoint snapshot saving (every 300 seconds or on goals/halftime/fulltime)
+      // Checkpoint snapshot saving (every 300 seconds or key events)
       const isKeyEvent = stepEvents.some((e) => ['GOAL', 'RED_CARD', 'HALFTIME', 'MATCH_END'].includes(e.eventType));
       if (state.virtualSecond % 300 === 0 || isKeyEvent) {
-        await db.insert(matchSnapshots).values({
-          matchId: matchRecord.id,
-          virtualSecond: state.virtualSecond,
-          matchStateJson: state as any,
-        });
+        await db
+          .insert(matchSnapshots)
+          .values({
+            matchId: matchRecord.id,
+            virtualSecond: state.virtualSecond,
+            matchStateJson: state as any,
+          })
+          .onConflictDoNothing({ target: [matchSnapshots.matchId, matchSnapshots.virtualSecond] });
       }
 
       // Update match live status periodically
@@ -179,7 +189,7 @@ export async function executeLiveMatchSimulation(options: {
           .where(eq(fixtures.id, fixtureId));
       }
 
-      if (!fastMode && tickDelayMs > 0) {
+      if (fastMode && tickDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, tickDelayMs));
       }
     }
@@ -195,7 +205,7 @@ export async function executeLiveMatchSimulation(options: {
       .update(JSON.stringify(allEvents))
       .digest('hex');
 
-    // Update match hashes
+    // Update match hashes & mark FINISHED
     await db
       .update(matches)
       .set({
@@ -207,9 +217,9 @@ export async function executeLiveMatchSimulation(options: {
       .where(eq(matches.fixtureId, fixtureId));
 
     // Save final match statistics
-    const existingStats = await db.select().from(matchStatistics).where(eq(matchStatistics.fixtureId, fixtureId));
-    if (existingStats.length === 0) {
-      await db.insert(matchStatistics).values({
+    await db
+      .insert(matchStatistics)
+      .values({
         fixtureId,
         homeShots: state.homeShots,
         awayShots: state.awayShots,
@@ -223,8 +233,8 @@ export async function executeLiveMatchSimulation(options: {
         awayYellowCards: state.awayYellowCards,
         homeRedCards: state.homeRedCards,
         awayRedCards: state.awayRedCards,
-      });
-    }
+      })
+      .onConflictDoNothing({ target: matchStatistics.fixtureId });
 
     // Mark fixture FINISHED
     await db
@@ -247,7 +257,7 @@ export async function executeLiveMatchSimulation(options: {
       timelineHash,
     };
 
-    // Post-match ratings & form evolution (guarded against duplicate)
+    // Post-match ratings & form evolution
     await processPostMatchEvolution(result);
 
     // Trigger bet settlement ONLY after full time
@@ -263,10 +273,10 @@ export async function executeLiveMatchSimulation(options: {
       })
       .where(eq(simulationRuns.id, simRun.id));
 
-    console.log(`✅ [MATCH ENGINE] Live simulation completed for fixture '${fixtureId}'. Final Score: ${state.homeScore}-${state.awayScore}`);
+    console.log(`✅ [MATCH ENGINE] Simulation completed for fixture '${fixtureId}'. Final Score: ${state.homeScore}-${state.awayScore}`);
     return result;
   } catch (err: any) {
-    console.error(`❌ [MATCH ENGINE] Live simulation failed for fixture '${fixtureId}':`, err);
+    console.error(`❌ [MATCH ENGINE] Simulation failed for fixture '${fixtureId}':`, err);
     await db
       .update(simulationRuns)
       .set({ status: 'FAILED', error: err.message })
@@ -285,7 +295,7 @@ export const simulationWorker = new Worker(
     return await executeLiveMatchSimulation({
       fixtureId,
       input,
-      fastMode: fastMode ?? true,
+      fastMode: fastMode ?? false,
       tickDelayMs: tickDelayMs ?? 0,
     });
   },
