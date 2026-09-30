@@ -1,12 +1,14 @@
 import { verifySafeDatabase } from '../db/guard';
 import { db } from '../db/index';
 import { leagues, seasons, teams, teamRatings, players, fixtures, standings, users, wallets } from '../db/schema/index';
-import { COMPETITIONS_DATA } from './data/competitions';
+import { COMPETITIONS_DATA_BY_SEASON } from './data/competitions';
 import { generateDoubleRoundRobin } from './fixture-generator';
 import { eq, and } from 'drizzle-orm';
 
 export async function seedDatabase(targetSeasonName: string = '2025-2026') {
   verifySafeDatabase(`Seed Database for Season ${targetSeasonName}`);
+
+  const seasonCompetitions = COMPETITIONS_DATA_BY_SEASON[targetSeasonName] || COMPETITIONS_DATA_BY_SEASON['2025-2026'];
 
   console.log(`🌱 Starting database seed for season '${targetSeasonName}'...`);
 
@@ -26,8 +28,9 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
     console.log('👤 Created demo user demo@simsoccer.com with 10,000 virtual credits wallet.');
   }
 
-  for (const [leagueSlug, compData] of Object.entries(COMPETITIONS_DATA)) {
-    console.log(`\n🏆 Processing League: ${compData.leagueName} (${compData.country})...`);
+  for (const [leagueSlug, compData] of Object.entries(seasonCompetitions)) {
+    console.log(`\n🏆 Processing League: ${compData.leagueName} (${compData.country}) — Season ${compData.provenance.season}...`);
+    console.log(`   Source: ${compData.provenance.source} (${compData.provenance.sourceUrl})`);
 
     // 1. Get or create league
     let [leagueRecord] = await db.select().from(leagues).where(eq(leagues.slug, compData.slug));
@@ -49,7 +52,7 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
       [seasonRecord] = await db.insert(seasons).values({
         leagueId: leagueRecord.id,
         name: targetSeasonName,
-        seasonNumber: 1,
+        seasonNumber: targetSeasonName === '2026-2027' ? 2 : 1,
         status: 'SCHEDULED',
         totalRounds: 38,
       }).returning();
@@ -102,25 +105,28 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
         });
       }
 
-      // Upsert 11 Starter Players
+      // Upsert 11 Starter Players deterministically (without Math.random)
       const existingPlayers = await db.select().from(players).where(eq(players.teamId, teamRecord.id));
       if (existingPlayers.length === 0) {
         const positions = ['GK', 'CB', 'CB', 'LB', 'RB', 'CM', 'CM', 'AM', 'LW', 'RW', 'ST'];
-        const playersToInsert = positions.map((pos, i) => ({
-          teamId: teamRecord.id,
-          name: `${teamData.shortName} Player ${i + 1}`,
-          age: 22 + (i % 8),
-          primaryPosition: pos,
-          pace: Math.floor(65 + Math.random() * 25),
-          shooting: pos === 'ST' ? 82 : Math.floor(60 + Math.random() * 20),
-          passing: Math.floor(65 + Math.random() * 25),
-          dribbling: Math.floor(65 + Math.random() * 25),
-          defending: pos === 'CB' ? 82 : Math.floor(55 + Math.random() * 25),
-          physical: Math.floor(65 + Math.random() * 25),
-          goalkeeping: pos === 'GK' ? 82 : 10,
-          overallRating: teamData.overallRating,
-          potential: teamData.overallRating + 4,
-        }));
+        const playersToInsert = positions.map((pos, i) => {
+          const baseRating = teamData.overallRating;
+          return {
+            teamId: teamRecord.id,
+            name: `${teamData.shortName} ${pos} ${i + 1}`,
+            age: 21 + (i % 7),
+            primaryPosition: pos,
+            pace: pos === 'LW' || pos === 'RW' || pos === 'RB' || pos === 'LB' ? baseRating + 5 : baseRating - 5,
+            shooting: pos === 'ST' ? baseRating + 6 : pos === 'AM' || pos === 'LW' || pos === 'RW' ? baseRating : baseRating - 15,
+            passing: pos === 'AM' || pos === 'CM' ? baseRating + 5 : baseRating - 5,
+            dribbling: pos === 'LW' || pos === 'RW' || pos === 'AM' ? baseRating + 5 : baseRating - 5,
+            defending: pos === 'CB' ? baseRating + 6 : pos === 'LB' || pos === 'RB' ? baseRating + 2 : baseRating - 20,
+            physical: pos === 'CB' || pos === 'ST' ? baseRating + 4 : baseRating - 4,
+            goalkeeping: pos === 'GK' ? baseRating + 6 : 10,
+            overallRating: baseRating,
+            potential: baseRating + 4,
+          };
+        });
         await db.insert(players).values(playersToInsert);
       }
     }
@@ -135,13 +141,12 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
       const fixturesToInsert = pairings.map((pairing) => ({
         seasonId: seasonRecord.id,
         round: pairing.round,
-        homeTeamId: createdTeamIds[pairing.homeTeamIndex],
-        awayTeamId: createdTeamIds[pairing.awayTeamIndex],
+        homeTeamId: createdTeamIds[pairing.homeTeamIndex] as string,
+        awayTeamId: createdTeamIds[pairing.awayTeamIndex] as string,
         scheduledAt: new Date(now.getTime() + pairing.round * 86400000),
         status: 'SCHEDULED',
       }));
 
-      // Insert in batch chunks of 100
       for (let i = 0; i < fixturesToInsert.length; i += 100) {
         await db.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));
       }

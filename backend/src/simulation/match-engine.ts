@@ -98,106 +98,127 @@ export class MatchEngine {
   }
 
   /**
-   * Runs complete deterministic match simulation from 0 to 5400 seconds (90 mins).
+   * Advances the match state by one virtual second, returning any events generated during this second.
+   */
+  public stepSecond(state: DynamicMatchState): LiveMatchEvent[] {
+    const events: LiveMatchEvent[] = [];
+
+    // 0. Initial Match Start & Kickoff
+    if (state.virtualSecond === 0 && state.status === 'SCHEDULED') {
+      state.status = 'LIVE';
+      state.eventSequence++;
+      events.push({
+        fixtureId: state.fixtureId,
+        sequence: state.eventSequence,
+        virtualMinute: 0,
+        virtualSecond: 0,
+        eventType: 'MATCH_START',
+        metadata: { homeTeam: this.input.homeTeam.name, awayTeam: this.input.awayTeam.name },
+      });
+
+      state.eventSequence++;
+      events.push({
+        fixtureId: state.fixtureId,
+        sequence: state.eventSequence,
+        virtualMinute: 0,
+        virtualSecond: 0,
+        eventType: 'KICKOFF',
+        teamId: this.input.homeTeam.id,
+      });
+
+      state.virtualSecond = 1;
+      return events;
+    }
+
+    if (state.isFullTime || state.virtualSecond > 5400) {
+      return events;
+    }
+
+    const second = state.virtualSecond;
+    state.virtualMinute = Math.floor(second / 60);
+
+    // 1. Halftime check at second 2700 (45m)
+    if (second === 2700) {
+      state.status = 'HALFTIME';
+      state.eventSequence++;
+      events.push({
+        fixtureId: state.fixtureId,
+        sequence: state.eventSequence,
+        virtualMinute: 45,
+        virtualSecond: 2700,
+        eventType: 'HALFTIME',
+        metadata: { homeScore: state.homeScore, awayScore: state.awayScore },
+      });
+
+      state.latentStochasticState *= 0.5;
+      state.status = 'SECOND_HALF';
+
+      state.eventSequence++;
+      events.push({
+        fixtureId: state.fixtureId,
+        sequence: state.eventSequence,
+        virtualMinute: 45,
+        virtualSecond: 2700,
+        eventType: 'SECOND_HALF_START',
+      });
+    }
+
+    // 2. Update player fatigue
+    for (const p of Object.values(state.homePlayers)) {
+      if (p.onPitch) {
+        p.minutesPlayed = Math.floor(second / 60);
+        p.fatigue = Math.min(100, p.minutesPlayed * 0.8);
+      }
+    }
+    for (const p of Object.values(state.awayPlayers)) {
+      if (p.onPitch) {
+        p.minutesPlayed = Math.floor(second / 60);
+        p.fatigue = Math.min(100, p.minutesPlayed * 0.8);
+      }
+    }
+
+    // 3. Latent state mean-reverting drift
+    state.latentStochasticState = state.latentStochasticState * 0.995 + (this.rng() - 0.5) * 0.02;
+    state.latentStochasticState = Math.max(-0.5, Math.min(0.5, state.latentStochasticState));
+
+    // 4. Calculate hazards and evaluate events
+    const hazards = calculateHazardRates(state, this.input);
+    this.evaluateSecondEvents(state, hazards, events);
+
+    // 5. Check if Full Time reached
+    if (second === 5400) {
+      state.status = 'FINISHED';
+      state.isFullTime = true;
+      state.eventSequence++;
+      events.push({
+        fixtureId: state.fixtureId,
+        sequence: state.eventSequence,
+        virtualMinute: 90,
+        virtualSecond: 5400,
+        eventType: 'MATCH_END',
+        metadata: {
+          finalHomeScore: state.homeScore,
+          finalAwayScore: state.awayScore,
+        },
+      });
+    } else {
+      state.virtualSecond++;
+    }
+
+    return events;
+  }
+
+  /**
+   * Runs complete deterministic match simulation by stepping through all 5400 seconds.
    */
   public simulate(): SimulationResult {
     const state = this.initializeState();
-    const events: LiveMatchEvent[] = [];
+    const allEvents: LiveMatchEvent[] = [];
 
-    // MATCH_START event
-    state.status = 'LIVE';
-    state.eventSequence++;
-    events.push({
-      fixtureId: state.fixtureId,
-      sequence: state.eventSequence,
-      virtualMinute: 0,
-      virtualSecond: 0,
-      eventType: 'MATCH_START',
-      metadata: { homeTeam: this.input.homeTeam.name, awayTeam: this.input.awayTeam.name },
-    });
-
-    // KICKOFF event
-    state.eventSequence++;
-    events.push({
-      fixtureId: state.fixtureId,
-      sequence: state.eventSequence,
-      virtualMinute: 0,
-      virtualSecond: 0,
-      eventType: 'KICKOFF',
-      teamId: this.input.homeTeam.id,
-    });
-
-    for (let second = 1; second <= 5400; second++) {
-      state.virtualSecond = second;
-      state.virtualMinute = Math.floor(second / 60);
-
-      // Halftime check at second 2700 (45m)
-      if (second === 2700) {
-        state.status = 'HALFTIME';
-        state.eventSequence++;
-        events.push({
-          fixtureId: state.fixtureId,
-          sequence: state.eventSequence,
-          virtualMinute: 45,
-          virtualSecond: 2700,
-          eventType: 'HALFTIME',
-          metadata: { homeScore: state.homeScore, awayScore: state.awayScore },
-        });
-
-        // Halftime recovery/reset
-        state.latentStochasticState *= 0.5;
-        state.status = 'SECOND_HALF';
-
-        state.eventSequence++;
-        events.push({
-          fixtureId: state.fixtureId,
-          sequence: state.eventSequence,
-          virtualMinute: 45,
-          virtualSecond: 2700,
-          eventType: 'SECOND_HALF_START',
-        });
-      }
-
-      // Update fatigue every second for active players on pitch
-      for (const p of Object.values(state.homePlayers)) {
-        if (p.onPitch) {
-          p.minutesPlayed = Math.floor(second / 60);
-          p.fatigue = Math.min(100, p.minutesPlayed * 0.8);
-        }
-      }
-      for (const p of Object.values(state.awayPlayers)) {
-        if (p.onPitch) {
-          p.minutesPlayed = Math.floor(second / 60);
-          p.fatigue = Math.min(100, p.minutesPlayed * 0.8);
-        }
-      }
-
-      // Small mean-reverting drift in latent stochastic state
-      state.latentStochasticState = state.latentStochasticState * 0.995 + (this.rng() - 0.5) * 0.02;
-      state.latentStochasticState = Math.max(-0.5, Math.min(0.5, state.latentStochasticState));
-
-      // Calculate hazards
-      const hazards = calculateHazardRates(state, this.input);
-
-      // Check events stochastically per second
-      this.evaluateSecondEvents(state, hazards, events);
+    while (!state.isFullTime) {
+      const stepEvents = this.stepSecond(state);
+      allEvents.push(...stepEvents);
     }
-
-    // MATCH_END event
-    state.status = 'FINISHED';
-    state.isFullTime = true;
-    state.eventSequence++;
-    events.push({
-      fixtureId: state.fixtureId,
-      sequence: state.eventSequence,
-      virtualMinute: 90,
-      virtualSecond: 5400,
-      eventType: 'MATCH_END',
-      metadata: {
-        finalHomeScore: state.homeScore,
-        finalAwayScore: state.awayScore,
-      },
-    });
 
     const resultHash = crypto
       .createHash('sha256')
@@ -206,7 +227,7 @@ export class MatchEngine {
 
     const timelineHash = crypto
       .createHash('sha256')
-      .update(JSON.stringify(events))
+      .update(JSON.stringify(allEvents))
       .digest('hex');
 
     return {
@@ -214,7 +235,7 @@ export class MatchEngine {
       homeScore: state.homeScore,
       awayScore: state.awayScore,
       finalState: state,
-      events,
+      events: allEvents,
       resultHash,
       timelineHash,
     };
@@ -230,7 +251,7 @@ export class MatchEngine {
       state.homeScore++;
       state.homeShots++;
       state.homeShotsOnTarget++;
-      state.latentStochasticState += 0.15; // momentum boost
+      state.latentStochasticState += 0.15;
 
       const scorer = this.selectActivePlayer(state.homePlayers);
       if (scorer) {

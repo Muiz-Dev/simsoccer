@@ -54,19 +54,21 @@ export function createApp() {
   });
 
   app.get('/api/fixtures/:id', async (req: Request, res: Response) => {
-    const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, req.params.id));
+    const fixtureId = req.params.id as string;
+    const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
     if (!fixture) return res.status(404).json({ error: 'Fixture not found' });
     res.json(fixture);
   });
 
   app.get('/api/fixtures/:id/events', async (req: Request, res: Response) => {
-    const events = await db.select().from(matchEvents).where(eq(matchEvents.fixtureId, req.params.id));
+    const fixtureId = req.params.id as string;
+    const events = await db.select().from(matchEvents).where(eq(matchEvents.fixtureId, fixtureId));
     res.json(events);
   });
 
   // 4. Markets API — Dynamically derived from team ratings
   app.get('/api/fixtures/:id/markets', async (req: Request, res: Response) => {
-    const fixtureId = req.params.id;
+    const fixtureId = req.params.id as string;
     const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixtureId));
 
     if (existingMarkets.length > 0) {

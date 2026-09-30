@@ -1,5 +1,6 @@
 import { MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
+import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
 
 async function runTests() {
   console.log('🧪 Starting Comprehensive Test Suite...\n');
@@ -79,6 +80,60 @@ async function runTests() {
     throw new Error('❌ Test 3 Failed: Unrealistic goal average produced in Monte Carlo run!');
   }
   console.log('  ✅ Test 3 Passed: Statistical distributions conform to expected football bounds.\n');
+
+  // Test 4: Market Pricing Engine Validation
+  console.log('▶ Test 4: Market Coverage & Pricing Engine...');
+  const markets = calculateAllPreMatchMarkets(1.35, 1.05);
+  const marketTypes = markets.map((m) => m.marketType);
+
+  console.log(`  📊 Generated ${markets.length} market types: ${marketTypes.join(', ')}`);
+
+  const requiredMarkets = ['1X2', 'DOUBLE_CHANCE', 'BTTS', 'CORRECT_SCORE', 'TOTAL_CORNERS', 'TOTAL_CARDS'];
+  for (const req of requiredMarkets) {
+    if (!marketTypes.includes(req)) {
+      throw new Error(`❌ Test 4 Failed: Required market type '${req}' missing from probability engine output!`);
+    }
+  }
+
+  for (const m of markets) {
+    for (const outcome of m.outcomes) {
+      if (outcome.odds < 1.01) {
+        throw new Error(`❌ Test 4 Failed: Invalid decimal odds (${outcome.odds}) for outcome '${outcome.outcomeCode}' in market '${m.marketType}'`);
+      }
+    }
+  }
+  console.log('  ✅ Test 4 Passed: Market pricing models, overround margins, and odds generated successfully.\n');
+
+  // Test 5: Step-by-Step Live Simulation Engine & Event Invariants
+  console.log('▶ Test 5: Step-by-Step Live Engine & Chronological Sequence Invariants...');
+  const liveEngine = new MatchEngine(input);
+  const liveState = liveEngine.initializeState();
+  const liveEvents = [];
+
+  let lastSeq = 0;
+  while (!liveState.isFullTime) {
+    const stepEvs = liveEngine.stepSecond(liveState);
+    for (const ev of stepEvs) {
+      liveEvents.push(ev);
+      if (ev.sequence !== lastSeq + 1) {
+        throw new Error(`❌ Test 5 Failed: Event sequence mismatch! Expected ${lastSeq + 1}, got ${ev.sequence}`);
+      }
+      lastSeq = ev.sequence;
+    }
+  }
+
+  const startEv = liveEvents.find((e) => e.eventType === 'MATCH_START');
+  const halfEv = liveEvents.find((e) => e.eventType === 'HALFTIME');
+  const endEv = liveEvents.find((e) => e.eventType === 'MATCH_END');
+
+  if (!startEv || !halfEv || !endEv) {
+    throw new Error('❌ Test 5 Failed: Missing lifecycle events (MATCH_START, HALFTIME, MATCH_END)!');
+  }
+
+  if (endEv.virtualSecond !== 5400) {
+    throw new Error(`❌ Test 5 Failed: MATCH_END second is ${endEv.virtualSecond}, expected 5400!`);
+  }
+  console.log(`  ✅ Test 5 Passed: Step-by-step match completed 5,400 seconds. Total events: ${liveEvents.length}.\n`);
 
   console.log('🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);

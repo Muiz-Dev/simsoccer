@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtHeader, SigningKeyCallback } from 'jsonwebtoken';
+import jwksRsa from 'jwks-rsa';
 import { env } from '../config/env';
 
 export interface AuthenticatedUser {
@@ -14,8 +15,45 @@ export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
 }
 
+let jwksClientInstance: jwksRsa.JwksClient | null = null;
+
+function getJwksClient(): jwksRsa.JwksClient {
+  if (jwksClientInstance) return jwksClientInstance;
+
+  const jwksUri =
+    env.SUPABASE_JWKS_URL ||
+    (env.SUPABASE_URL ? `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json` : '');
+
+  if (!jwksUri) {
+    throw new Error('JWT Verification Failed: SUPABASE_JWKS_URL or SUPABASE_URL configuration is missing');
+  }
+
+  jwksClientInstance = jwksRsa({
+    jwksUri,
+    cache: true,
+    rateLimit: true,
+    jwksRequestsPerMinute: 10,
+  });
+
+  return jwksClientInstance;
+}
+
+function getKey(header: JwtHeader, callback: SigningKeyCallback) {
+  try {
+    const client = getJwksClient();
+    client.getSigningKey(header.kid, (err, key) => {
+      if (err) return callback(err);
+      const signingKey = key?.getPublicKey();
+      callback(null, signingKey);
+    });
+  } catch (err: any) {
+    callback(err);
+  }
+}
+
 /**
- * Express middleware to verify Supabase Auth Bearer JWT signatures strictly.
+ * Express middleware to verify Supabase Auth Bearer JWT signatures strictly via JWKS.
+ * Validates issuer (iss), audience (aud), expiration (exp), and subject (sub) claims.
  */
 export function authenticateJwt(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -25,27 +63,39 @@ export function authenticateJwt(req: AuthenticatedRequest, res: Response, next: 
   }
 
   const token = authHeader.split(' ')[1];
-
-  try {
-    const secretKey = env.SUPABASE_SECRET_KEY || 'test_secret_key';
-    const decoded = jwt.verify(token, secretKey) as any;
-
-    if (!decoded || !decoded.sub) {
-      return res.status(401).json({ error: 'INVALID_TOKEN', message: 'Invalid JWT token payload' });
-    }
-
-    req.user = {
-      id: decoded.sub,
-      email: decoded.email,
-      role: decoded.role || 'authenticated',
-      app_metadata: decoded.app_metadata,
-      user_metadata: decoded.user_metadata,
-    };
-
-    return next();
-  } catch (err: any) {
-    return res.status(401).json({ error: 'INVALID_TOKEN', message: err.message || 'JWT signature verification failed' });
+  if (!token) {
+    return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Bearer token is missing' });
   }
+
+  const expectedIssuer = env.SUPABASE_URL ? `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1` : undefined;
+
+  jwt.verify(
+    token,
+    getKey,
+    {
+      algorithms: ['RS256', 'ES256', 'HS256'],
+      issuer: expectedIssuer,
+      audience: 'authenticated',
+    },
+    (err, decoded: any) => {
+      if (err || !decoded || !decoded.sub) {
+        return res.status(401).json({
+          error: 'INVALID_TOKEN',
+          message: err ? err.message : 'Invalid JWT token payload or subject missing',
+        });
+      }
+
+      req.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role || 'authenticated',
+        app_metadata: decoded.app_metadata,
+        user_metadata: decoded.user_metadata,
+      };
+
+      return next();
+    }
+  );
 }
 
 /**

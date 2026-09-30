@@ -1,33 +1,41 @@
 import { env } from '../config/env';
 
 /**
- * Ensures that database migrations or seed scripts only run against explicit dev/test databases.
- * Fails closed if the database URL appears to point to production and ALLOW_UNSAFE_DB is not true.
+ * Ensures that database migrations or seed scripts only run against explicitly verified dev/test databases.
+ * Fails closed unless the target database is confirmed as an isolated local or explicitly confirmed dev/test target.
  */
 export function verifySafeDatabase(operationName: string): void {
   const url = env.DATABASE_URL.toLowerCase();
 
-  const isDevOrTestEnv = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
-  const containsDevKeywords = url.includes('dev') || url.includes('test') || url.includes('localhost') || url.includes('127.0.0.1') || url.includes('supabase');
-  const isExplicitlyAllowed = env.ALLOW_UNSAFE_DB;
+  // Parse URL host
+  let host = '';
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname;
+  } catch {
+    // If not a standard URL, check string match
+    host = url;
+  }
 
-  if (isExplicitlyAllowed) {
-    console.warn(`⚠️ [SAFETY GUARD] Explicit override ALLOW_UNSAFE_DB=true active for operation: ${operationName}`);
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === 'host.docker.internal';
+  const isDevOrTestEnv = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
+
+  // 1. Safe local dev/test environment
+  if (isLocalHost && isDevOrTestEnv) {
+    console.log(`✅ [SAFETY GUARD PASSED] Safe local database verified for '${operationName}' (${host}).`);
     return;
   }
 
-  if (!isDevOrTestEnv) {
-    throw new Error(
-      `🚫 [SAFETY GUARD REJECTED] Operation '${operationName}' blocked! NODE_ENV is '${env.NODE_ENV}'. Must be 'development' or 'test', or set ALLOW_UNSAFE_DB=true.`
-    );
+  // 2. Non-local / Remote target requires explicit confirmation override
+  const isExplicitlyConfirmed = env.ALLOW_UNSAFE_DB || process.env.EXPLICIT_TEST_DB_CONFIRMED === 'true';
+
+  if (!isLocalHost && isExplicitlyConfirmed) {
+    console.warn(`⚠️ [SAFETY GUARD OVERRIDE] Operation '${operationName}' running against non-local target (${host}) with explicit confirmation.`);
+    return;
   }
 
-  // Double check keywords in URL if in dev mode
-  if (!containsDevKeywords) {
-    throw new Error(
-      `🚫 [SAFETY GUARD REJECTED] Operation '${operationName}' blocked! DATABASE_URL does not contain safe keywords ('dev', 'test', 'localhost', 'supabase'). Set ALLOW_UNSAFE_DB=true if intentional.`
-    );
-  }
-
-  console.log(`✅ [SAFETY GUARD PASSED] Safe database confirmed for '${operationName}'.`);
+  // Fail closed
+  throw new Error(
+    `🚫 [SAFETY GUARD REJECTED] Operation '${operationName}' blocked! The target database (${host}) is not a verified local development/test database, and explicit target confirmation is absent. Never run migrations or seeds against non-verified targets.`
+  );
 }
