@@ -125,11 +125,27 @@ npx tsx src/football/seed.ts 2026-2027
 
 ## 5. Running the Application & Background Workers
 
-### Start API & WebSocket Server
+### Start the API and Simulation Worker
+With `DATABASE_URL` and `REDIS_URL` configured and reachable, start both implemented services together. `npm start` builds first, verifies database and Redis connectivity without writing data, then starts the API and worker:
 ```bash
-npm run dev
+npm start
+# npm start builds first, then starts the API/WebSocket server and simulation worker.
 # Server listens on http://localhost:8080 and ws://localhost:8080/ws
+# Press Ctrl+C to stop both processes.
 ```
+
+For API-only development with automatic reload, use `npm run dev`; start the worker separately with:
+```bash
+npm run worker
+```
+
+### Queue One Fixture
+With the worker running, enqueue one scheduled fixture by ID. This uses the season ratings and player rosters already in the database. The worker will write match events/results and update ratings, so use an isolated development database:
+```bash
+EXPLICIT_TEST_DB_CONFIRMED=true npm run simulate:fixture -- <fixture-id>
+```
+
+**Current limitation:** starting both services does not make the season autonomous yet. Fixtures are not automatically scheduled or enqueued; use the one-fixture command above. Automatic fixture scheduling, round progression, and season completion remain unimplemented.
 
 ---
 

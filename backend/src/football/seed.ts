@@ -1,5 +1,5 @@
 import { verifySafeDatabase } from '../db/guard';
-import { db } from '../db/index';
+import { db, client } from '../db/index';
 import { leagues, seasons, teams, teamRatings, players, fixtures, standings, users, wallets } from '../db/schema/index';
 import { COMPETITIONS_DATA_BY_SEASON } from './data/competitions';
 import { generateDoubleRoundRobin } from './fixture-generator';
@@ -157,13 +157,14 @@ export async function seedDatabase(targetSeasonName: string = '2025-2026') {
   }
 
   console.log('\n🎉 Seeding complete for all initial competitions!');
-  process.exit(0);
 }
 
 if (require.main === module) {
   const selectedSeason = process.argv[2] || '2025-2026';
   seedDatabase(selectedSeason).catch((err) => {
     console.error('❌ Seeding failed:', err);
-    process.exit(1);
+    process.exitCode = 1;
+  }).finally(async () => {
+    await client.end();
   });
 }

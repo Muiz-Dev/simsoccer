@@ -5,11 +5,14 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "worker": "tsx src/worker.ts",
+    "prestart": "npm run build",
+    "start": "node dist/start.js",
     "build": "tsc",
     "db:generate": "tsx src/db/generate.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "migrate": "npm run db:migrate",
+    "simulate:fixture": "tsx src/workers/enqueue-simulation.ts",
     "test": "tsx src/tests/comprehensive-test.ts"
   },
   "keywords": [],
