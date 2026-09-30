@@ -7,6 +7,7 @@ import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
+import Skeleton from "@mui/material/Skeleton";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Tooltip from "@mui/material/Tooltip";
@@ -54,6 +55,8 @@ function MatchRow({ fixture, serverNow }: { fixture: Fixture; serverNow: number 
   const clockDelayed = isLive && !finalizing && clockDelaySeconds >= 120;
   const minute = Math.min(90, Math.floor(matchSecond / 60));
   const scheduled = !isLive && !isFinished;
+  const homeName = fixture.homeTeam?.name ?? "Home team";
+  const awayName = fixture.awayTeam?.name ?? "Away team";
 
   return (
     <div className={styles.matchRow}>
@@ -78,23 +81,46 @@ function MatchRow({ fixture, serverNow }: { fixture: Fixture; serverNow: number 
           <span className={styles.kickoff}>{utcKickoff(fixture.scheduledAt)} UTC</span>
         )}
       </div>
-      <div className={styles.matchTeams}>
-        <span className={isLive || isFinished ? (fixture.homeScore > fixture.awayScore ? styles.winner : "") : ""}>
-          {fixture.homeTeam?.name ?? "Home team"}
+      <div className={styles.matchLine} aria-label={`${homeName} ${scheduled ? "versus" : `${fixture.homeScore} to ${fixture.awayScore}`} ${awayName}`}>
+        <span
+          className={`${styles.teamName} ${styles.homeTeam} ${isLive || isFinished ? (fixture.homeScore > fixture.awayScore ? styles.winner : "") : ""}`}
+          title={homeName}
+        >
+          <span className={styles.fullName}>{homeName}</span>
+          <span className={styles.shortName}>{fixture.homeTeam?.shortName ?? homeName}</span>
         </span>
-        <span className={isLive || isFinished ? (fixture.awayScore > fixture.homeScore ? styles.winner : "") : ""}>
-          {fixture.awayTeam?.name ?? "Away team"}
+        {scheduled ? (
+          <span className={styles.versus}>vs</span>
+        ) : (
+          <span className={styles.score}>
+            {fixture.homeScore}<span className={styles.scoreColon}>:</span>{fixture.awayScore}
+          </span>
+        )}
+        <span
+          className={`${styles.teamName} ${styles.awayTeam} ${isLive || isFinished ? (fixture.awayScore > fixture.homeScore ? styles.winner : "") : ""}`}
+          title={awayName}
+        >
+          <span className={styles.fullName}>{awayName}</span>
+          <span className={styles.shortName}>{fixture.awayTeam?.shortName ?? awayName}</span>
         </span>
       </div>
-      {scheduled ? (
-        <span className={styles.versus}>vs</span>
-      ) : (
-        <div className={styles.score} aria-label={`${fixture.homeScore} to ${fixture.awayScore}`}>
-          <span>{fixture.homeScore}</span>
-          <span className={styles.scoreColon}>:</span>
-          <span>{fixture.awayScore}</span>
+    </div>
+  );
+}
+
+function MatchSkeletonList({ count = 5 }: { count?: number }) {
+  return (
+    <div className={styles.matchList} role="status" aria-label="Loading matches">
+      {Array.from({ length: count }, (_, index) => (
+        <div className={styles.matchRow} key={index} aria-hidden="true">
+          <div className={styles.matchTime}><Skeleton variant="rectangular" width={52} height={13} /></div>
+          <div className={styles.matchLine}>
+            <Skeleton className={styles.homeSkeleton} variant="rectangular" height={15} />
+            <Skeleton className={styles.middleSkeleton} variant="rectangular" width={34} height={20} />
+            <Skeleton className={styles.awaySkeleton} variant="rectangular" height={15} />
+          </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -136,8 +162,44 @@ function StandingsTable({ rows }: { rows: Standing[] }) {
   );
 }
 
-function FixturesByRound({ fixtures, serverNow }: { fixtures: Fixture[]; serverNow: number }) {
+function StandingsSkeleton() {
+  return (
+    <div className={styles.tableScroll} role="status" aria-label="Loading league table">
+      <table className={styles.table} aria-hidden="true">
+        <thead>
+          <tr>
+            <th scope="col">#</th>
+            <th scope="col" className={styles.clubHead}>Club</th>
+            <th scope="col">P</th>
+            <th scope="col" className={styles.compactColumn}>W</th>
+            <th scope="col" className={styles.compactColumn}>D</th>
+            <th scope="col" className={styles.compactColumn}>L</th>
+            <th scope="col" className={styles.smallColumn}>GD</th>
+            <th scope="col">Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 8 }, (_, index) => (
+            <tr key={index}>
+              <td><Skeleton variant="rectangular" width={14} height={13} /></td>
+              <td><Skeleton variant="rectangular" width={`${48 + (index % 3) * 12}%`} height={13} /></td>
+              <td><Skeleton variant="rectangular" width={14} height={13} /></td>
+              <td className={styles.compactColumn}><Skeleton variant="rectangular" width={14} height={13} /></td>
+              <td className={styles.compactColumn}><Skeleton variant="rectangular" width={14} height={13} /></td>
+              <td className={styles.compactColumn}><Skeleton variant="rectangular" width={14} height={13} /></td>
+              <td className={styles.smallColumn}><Skeleton variant="rectangular" width={18} height={13} /></td>
+              <td><Skeleton variant="rectangular" width={18} height={13} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FixturesByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[]; serverNow: number; loading: boolean }) {
   const rounds = [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => a - b);
+  if (loading) return <MatchSkeletonList />;
   if (rounds.length === 0) return <p className={styles.empty}>No fixtures are scheduled.</p>;
 
   return rounds.map((round) => (
@@ -152,8 +214,9 @@ function FixturesByRound({ fixtures, serverNow }: { fixtures: Fixture[]; serverN
   ));
 }
 
-function ResultsByRound({ fixtures, serverNow }: { fixtures: Fixture[]; serverNow: number }) {
+function ResultsByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[]; serverNow: number; loading: boolean }) {
   const rounds = [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => b - a);
+  if (loading) return <MatchSkeletonList />;
   if (rounds.length === 0) return <p className={styles.empty}>No completed results yet.</p>;
 
   return rounds.map((round) => (
@@ -265,9 +328,12 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
             </div>
             <div className={styles.matchList}>
               {liveFixtures.map((fixture) => <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} />)}
-              {overview && liveFixtures.length === 0 ? <p className={styles.empty}>No live matches in this competition.</p> : null}
-              {!overview ? <p className={styles.empty}>Connecting to the match centre…</p> : null}
+              {overview && liveFixtures.length === 0 ? (
+                <p className={styles.empty}>No live fixtures right now. <Link href="/fixtures">View fixtures</Link></p>
+              ) : null}
             </div>
+            {!overview && !error ? <MatchSkeletonList count={6} /> : null}
+            {!overview && error ? <p className={styles.empty}>Live scores are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
 
@@ -277,7 +343,8 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <h2>{selectedLeague?.league.name ?? "Upcoming fixtures"}</h2>
               <span className={styles.count}>Kickoff times in UTC</span>
             </div>
-            <FixturesByRound fixtures={upcomingFixtures} serverNow={serverNow} />
+            <FixturesByRound fixtures={upcomingFixtures} serverNow={serverNow} loading={!overview && !error} />
+            {!overview && error ? <p className={styles.empty}>Fixtures are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
 
@@ -287,7 +354,8 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <h2>{selectedLeague?.league.name ?? "Completed matches"}</h2>
               <span className={styles.count}>Full-time results</span>
             </div>
-            <ResultsByRound fixtures={completedFixtures} serverNow={serverNow} />
+            <ResultsByRound fixtures={completedFixtures} serverNow={serverNow} loading={!overview && !error} />
+            {!overview && error ? <p className={styles.empty}>Results are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
 
@@ -297,7 +365,9 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <h2>{selectedLeague?.league.name ?? "League table"}</h2>
               <span className={styles.count}>{selectedLeague?.season?.name ?? "Season"}</span>
             </div>
-            <StandingsTable rows={selectedLeague?.standings ?? []} />
+            {overview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : !error ? <StandingsSkeleton /> : (
+              <p className={styles.empty}>The table is unavailable. Use refresh to try again.</p>
+            )}
           </>
         ) : null}
       </section>

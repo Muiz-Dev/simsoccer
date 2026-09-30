@@ -35,6 +35,14 @@ const theme = createTheme({
     MuiPaper: {
       styleOverrides: { root: { borderRadius: 0, boxShadow: "none" } },
     },
+    MuiSkeleton: {
+      styleOverrides: {
+        root: {
+          borderRadius: 0,
+          backgroundColor: "rgba(34, 84, 61, 0.09)",
+        },
+      },
+    },
   },
 });
 
