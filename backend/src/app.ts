@@ -9,6 +9,7 @@ import { authenticateJwt, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { calculateAllPreMatchMarkets } from './markets/probability-engine';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { MatchEngine } from './simulation/match-engine';
+import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
 import { eq, and } from 'drizzle-orm';
 
 export function createApp() {
@@ -19,9 +20,27 @@ export function createApp() {
   app.use(cookieParser());
   app.use(express.json());
 
-  // 1. Health Endpoints
+  // 1. Health & World Status Endpoints
   app.get('/api/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', service: 'sim-soccer', environment: env.NODE_ENV, timestamp: new Date().toISOString() });
+  });
+
+  app.get('/api/health/live', (req: Request, res: Response) => {
+    res.json({ status: 'live', service: 'sim-soccer', timestamp: new Date().toISOString() });
+  });
+
+  app.get('/api/health/ready', async (req: Request, res: Response) => {
+    const health = await checkDependenciesHealth();
+    if (health.postgres && health.redis) {
+      res.json({ status: 'ready', dependencies: health });
+    } else {
+      res.status(503).json({ status: 'not_ready', dependencies: health });
+    }
+  });
+
+  app.get('/api/world/status', async (req: Request, res: Response) => {
+    const statusInfo = await getWorldStatusInfo();
+    res.json(statusInfo);
   });
 
   app.get('/api/health/database', async (req: Request, res: Response) => {

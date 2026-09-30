@@ -18,6 +18,23 @@ export class MatchEngine {
     this.rng = seedrandom(fullSeed);
   }
 
+  private nextRandom(state: DynamicMatchState): number {
+    state.rngCallCount = (state.rngCallCount || 0) + 1;
+    return this.rng();
+  }
+
+  /**
+   * Fast-forwards the PRNG and restores the RNG stream to match exact random call count from state snapshot.
+   */
+  public restoreRngState(state: DynamicMatchState): void {
+    const fullSeed = `${this.input.fixtureId}:${this.input.simulationVersion}:${this.input.seed}`;
+    this.rng = seedrandom(fullSeed);
+    const count = state.rngCallCount || 0;
+    for (let i = 0; i < count; i++) {
+      this.rng();
+    }
+  }
+
   /**
    * Initializes dynamic match state from starting lineups and team metadata.
    */
@@ -178,7 +195,7 @@ export class MatchEngine {
     }
 
     // 3. Latent state mean-reverting drift
-    state.latentStochasticState = state.latentStochasticState * 0.995 + (this.rng() - 0.5) * 0.02;
+    state.latentStochasticState = state.latentStochasticState * 0.995 + (this.nextRandom(state) - 0.5) * 0.02;
     state.latentStochasticState = Math.max(-0.5, Math.min(0.5, state.latentStochasticState));
 
     // 4. Calculate hazards and evaluate events
@@ -247,13 +264,13 @@ export class MatchEngine {
     events: LiveMatchEvent[]
   ) {
     // 1. Home Goal
-    if (this.rng() < hazards.homeGoalHazard) {
+    if (this.nextRandom(state) < hazards.homeGoalHazard) {
       state.homeScore++;
       state.homeShots++;
       state.homeShotsOnTarget++;
       state.latentStochasticState += 0.15;
 
-      const scorer = this.selectActivePlayer(state.homePlayers);
+      const scorer = this.selectActivePlayer(state.homePlayers, state);
       if (scorer) {
         scorer.goalsScored++;
         scorer.shots++;
@@ -275,13 +292,13 @@ export class MatchEngine {
     }
 
     // 2. Away Goal
-    if (this.rng() < hazards.awayGoalHazard) {
+    if (this.nextRandom(state) < hazards.awayGoalHazard) {
       state.awayScore++;
       state.awayShots++;
       state.awayShotsOnTarget++;
       state.latentStochasticState -= 0.15;
 
-      const scorer = this.selectActivePlayer(state.awayPlayers);
+      const scorer = this.selectActivePlayer(state.awayPlayers, state);
       if (scorer) {
         scorer.goalsScored++;
         scorer.shots++;
@@ -303,12 +320,12 @@ export class MatchEngine {
     }
 
     // 3. Home Shot
-    if (this.rng() < hazards.homeShotHazard) {
+    if (this.nextRandom(state) < hazards.homeShotHazard) {
       state.homeShots++;
-      const isOnTarget = this.rng() < 0.38;
+      const isOnTarget = this.nextRandom(state) < 0.38;
       if (isOnTarget) state.homeShotsOnTarget++;
 
-      const shooter = this.selectActivePlayer(state.homePlayers);
+      const shooter = this.selectActivePlayer(state.homePlayers, state);
       if (shooter) {
         shooter.shots++;
         if (isOnTarget) shooter.shotsOnTarget++;
@@ -328,12 +345,12 @@ export class MatchEngine {
     }
 
     // 4. Away Shot
-    if (this.rng() < hazards.awayShotHazard) {
+    if (this.nextRandom(state) < hazards.awayShotHazard) {
       state.awayShots++;
-      const isOnTarget = this.rng() < 0.38;
+      const isOnTarget = this.nextRandom(state) < 0.38;
       if (isOnTarget) state.awayShotsOnTarget++;
 
-      const shooter = this.selectActivePlayer(state.awayPlayers);
+      const shooter = this.selectActivePlayer(state.awayPlayers, state);
       if (shooter) {
         shooter.shots++;
         if (isOnTarget) shooter.shotsOnTarget++;
@@ -353,7 +370,7 @@ export class MatchEngine {
     }
 
     // 5. Home Corner
-    if (this.rng() < hazards.homeCornerHazard) {
+    if (this.nextRandom(state) < hazards.homeCornerHazard) {
       state.homeCorners++;
       state.eventSequence++;
       events.push({
@@ -368,7 +385,7 @@ export class MatchEngine {
     }
 
     // 6. Away Corner
-    if (this.rng() < hazards.awayCornerHazard) {
+    if (this.nextRandom(state) < hazards.awayCornerHazard) {
       state.awayCorners++;
       state.eventSequence++;
       events.push({
@@ -383,13 +400,13 @@ export class MatchEngine {
     }
 
     // 7. Home Foul & Cards
-    if (this.rng() < hazards.homeFoulHazard) {
+    if (this.nextRandom(state) < hazards.homeFoulHazard) {
       state.homeFouls++;
-      const fowler = this.selectActivePlayer(state.homePlayers);
+      const fowler = this.selectActivePlayer(state.homePlayers, state);
       if (fowler) fowler.foulsCommitted++;
 
-      const isYellow = this.rng() < 0.16;
-      const isRed = !isYellow && this.rng() < 0.015;
+      const isYellow = this.nextRandom(state) < 0.16;
+      const isRed = !isYellow && this.nextRandom(state) < 0.015;
 
       if (isRed) {
         state.homeRedCards++;
@@ -423,13 +440,13 @@ export class MatchEngine {
     }
 
     // 8. Away Foul & Cards
-    if (this.rng() < hazards.awayFoulHazard) {
+    if (this.nextRandom(state) < hazards.awayFoulHazard) {
       state.awayFouls++;
-      const fowler = this.selectActivePlayer(state.awayPlayers);
+      const fowler = this.selectActivePlayer(state.awayPlayers, state);
       if (fowler) fowler.foulsCommitted++;
 
-      const isYellow = this.rng() < 0.16;
-      const isRed = !isYellow && this.rng() < 0.015;
+      const isYellow = this.nextRandom(state) < 0.16;
+      const isRed = !isYellow && this.nextRandom(state) < 0.015;
 
       if (isRed) {
         state.awayRedCards++;
@@ -463,10 +480,10 @@ export class MatchEngine {
     }
   }
 
-  private selectActivePlayer(playersMap: Record<string, PlayerState>): PlayerState | undefined {
+  private selectActivePlayer(playersMap: Record<string, PlayerState>, state: DynamicMatchState): PlayerState | undefined {
     const active = Object.values(playersMap).filter((p) => p.onPitch);
     if (active.length === 0) return undefined;
-    const index = Math.floor(this.rng() * active.length);
+    const index = Math.floor(this.nextRandom(state) * active.length);
     return active[index];
   }
 }
