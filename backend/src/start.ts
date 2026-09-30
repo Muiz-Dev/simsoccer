@@ -7,6 +7,7 @@ import { env } from './config/env';
 const services: Array<{ name: string; entrypoint: string }> = [
   { name: 'API', entrypoint: 'index.js' },
   { name: 'Simulation worker', entrypoint: 'worker.js' },
+  { name: 'World coordinator', entrypoint: 'coordinator.js' },
 ];
 
 const children: ChildProcess[] = [];
@@ -26,8 +27,12 @@ async function verifyDependencies(): Promise<void> {
 
   try {
     await database`SELECT 1`;
-    if (await redis.ping() !== 'PONG') throw new Error('Redis ping did not return PONG.');
-    console.log('Database and Redis connectivity checks passed.');
+    const pong = await redis.ping();
+    if (pong !== 'PONG') throw new Error('Redis ping did not return PONG');
+    console.log('✅ [BOOT] PostgreSQL and Redis dependency health checks passed.');
+  } catch (err: any) {
+    console.error('❌ [BOOT] Dependency verification failed:', err.message);
+    throw err;
   } finally {
     redis.disconnect();
     await database.end({ timeout: 5 });
@@ -53,6 +58,7 @@ async function start(): Promise<void> {
       stdio: 'inherit',
     });
     children.push(child);
+    console.log(`🚀 [SUPERVISOR] Started ${service.name} (${service.entrypoint}).`);
 
     child.on('error', (error) => {
       console.error(`Failed to start ${service.name}:`, error);
@@ -67,7 +73,7 @@ async function start(): Promise<void> {
     });
   }
 
-  console.log('Started API and simulation worker. Press Ctrl+C to stop both.');
+  console.log('✅ [SUPERVISOR] Exactly one API, one World Coordinator, and one Worker running under supervision.');
 }
 
 process.once('SIGINT', () => stop(0));

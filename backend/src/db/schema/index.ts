@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, boolean, timestamp, numeric, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, timestamp, numeric, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const leagues = pgTable('leagues', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -152,7 +152,9 @@ export const matchSnapshots = pgTable('match_snapshots', {
   virtualSecond: integer('virtual_second').notNull(),
   matchStateJson: jsonb('match_state_json').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('match_snapshots_match_vsec_idx').on(table.matchId, table.virtualSecond),
+]);
 
 export const matchEvents = pgTable('match_events', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -166,7 +168,9 @@ export const matchEvents = pgTable('match_events', {
   secondaryPlayerId: uuid('secondary_player_id').references(() => players.id),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('match_events_fixture_sequence_idx').on(table.fixtureId, table.sequence),
+]);
 
 export const matchStatistics = pgTable('match_statistics', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -218,7 +222,9 @@ export const standings = pgTable('standings', {
   goalDifference: integer('goal_difference').notNull().default(0),
   points: integer('points').notNull().default(0),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('standings_season_team_idx').on(table.seasonId, table.teamId),
+]);
 
 export const markets = pgTable('markets', {
   id: uuid('id').primaryKey().defaultRandom(),
