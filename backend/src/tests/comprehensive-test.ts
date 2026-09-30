@@ -167,10 +167,14 @@ async function runTests() {
   }
   console.log(`  ✅ Test 6 Passed: Checkpoint restored at second ${savedVirtualSecond} and produced identical final score (${stateJson.homeScore}-${stateJson.awayScore}).\n`);
 
-  // Test 7: Runtime Status API & Dependency Readiness Verification
-  console.log('▶ Test 7: Runtime Health, Dependency Verification & Status reporting...');
+  // Test 7: Runtime Health, Dependency Verification & Migration Check
+  console.log('▶ Test 7: Runtime Health, Migration Verification & Readiness Reporting...');
   const health = await checkDependenciesHealth();
-  console.log(`  📊 Dependencies health check: PostgreSQL=${health.postgres}, Redis=${health.redis}`);
+  console.log(`  📊 Dependencies health check: PostgreSQL=${health.postgres}, Redis=${health.redis}, MigrationOk=${health.migrationOk}`);
+
+  if (typeof health.migrationOk !== 'boolean') {
+    throw new Error('❌ Test 7 Failed: Migration health field missing or invalid.');
+  }
 
   const statusInfo = await getWorldStatusInfo();
   console.log(`  📊 World Status: ${statusInfo.status}, Season: ${statusInfo.activeSeasonName || 'None'}, Round: ${statusInfo.currentRound}/${statusInfo.totalRounds}`);
@@ -178,9 +182,21 @@ async function runTests() {
   if (typeof statusInfo.status !== 'string' || typeof statusInfo.isCoordinatorLeader !== 'boolean') {
     throw new Error('❌ Test 7 Failed: World status info shape is invalid.');
   }
-  console.log('  ✅ Test 7 Passed: Runtime status and dependency health endpoints validated.\n');
+  console.log('  ✅ Test 7 Passed: Runtime status and migration health endpoints validated.\n');
 
-  console.log('🎉 All Test Suite Checks Passed Successfully!');
+  // Test 8: DB-backed Recovery & Runtime Status Invariants
+  console.log('▶ Test 8: DB Checkpoint Restore & Runtime Status Invariants...');
+  if (health.postgres && health.migrationOk) {
+    console.log('  📊 PostgreSQL is active. Testing DB-backed runtime reconciliation...');
+    if (statusInfo.activeSeasonId && statusInfo.status !== 'RUNNING') {
+      throw new Error(`❌ Test 8 Failed: Active season present (${statusInfo.activeSeasonId}) but status is '${statusInfo.status}' instead of 'RUNNING'`);
+    }
+    console.log('  ✅ Test 8 Passed: DB-backed state reconciliation validated.');
+  } else {
+    console.log('  ℹ️ Test 8 Skipped: Database or migration unavailable in current environment (unit test mode).');
+  }
+
+  console.log('\n🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);
 }
 

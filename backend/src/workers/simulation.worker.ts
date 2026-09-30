@@ -43,7 +43,7 @@ export async function executeLiveMatchSimulation(options: {
     const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
     if (!fixture) throw new Error(`Fixture ${fixtureId} not found`);
 
-    const actualStartedAt = fixture.startedAt || new Date();
+    const actualStartedAt = fixture.startedAt || fixture.scheduledAt || new Date();
     if (!fixture.startedAt) {
       await db
         .update(fixtures)
@@ -110,7 +110,7 @@ export async function executeLiveMatchSimulation(options: {
     }));
 
     const totalRealMs = env.MATCH_REAL_DURATION_SECONDS * 1000;
-    const kickoffTime = fixture.scheduledAt ? new Date(fixture.scheduledAt).getTime() : new Date(actualStartedAt).getTime();
+    const kickoffTime = new Date(actualStartedAt).getTime();
 
     // Step second-by-second
     while (!state.isFullTime) {
@@ -205,17 +205,6 @@ export async function executeLiveMatchSimulation(options: {
       .update(JSON.stringify(allEvents))
       .digest('hex');
 
-    // Update match hashes & mark FINISHED
-    await db
-      .update(matches)
-      .set({
-        status: 'FINISHED',
-        resultHash,
-        timelineHash,
-        updatedAt: new Date(),
-      })
-      .where(eq(matches.fixtureId, fixtureId));
-
     // Save final match statistics
     await db
       .insert(matchStatistics)
@@ -236,14 +225,13 @@ export async function executeLiveMatchSimulation(options: {
       })
       .onConflictDoNothing({ target: matchStatistics.fixtureId });
 
-    // Mark fixture FINISHED
+    // Update fixture scores so post-match evolution and settlement have scores
     await db
       .update(fixtures)
       .set({
-        status: 'FINISHED',
         homeScore: state.homeScore,
         awayScore: state.awayScore,
-        finishedAt: new Date(),
+        updatedAt: new Date(),
       })
       .where(eq(fixtures.id, fixtureId));
 
@@ -262,6 +250,26 @@ export async function executeLiveMatchSimulation(options: {
 
     // Trigger bet settlement ONLY after full time
     await settleFixtureBets(fixtureId);
+
+    // Update match hashes & mark FINISHED
+    await db
+      .update(matches)
+      .set({
+        status: 'FINISHED',
+        resultHash,
+        timelineHash,
+        updatedAt: new Date(),
+      })
+      .where(eq(matches.fixtureId, fixtureId));
+
+    // Mark fixture FINISHED only after all post-match work is complete
+    await db
+      .update(fixtures)
+      .set({
+        status: 'FINISHED',
+        finishedAt: new Date(),
+      })
+      .where(eq(fixtures.id, fixtureId));
 
     await db
       .update(simulationRuns)

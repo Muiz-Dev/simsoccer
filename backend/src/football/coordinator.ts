@@ -57,15 +57,27 @@ let currentStatus: WorldStatusType = 'WAITING_FOR_SEASON';
 let degradedReasonStr: string | null = null;
 let lastReconciliationTime: Date | null = null;
 
-export async function checkDependenciesHealth(): Promise<{ postgres: boolean; redis: boolean }> {
+export async function checkDependenciesHealth(): Promise<{ postgres: boolean; redis: boolean; migrationOk: boolean; error?: string }> {
   let pgOk = false;
   let redisOk = false;
+  let migrationOk = false;
+  let errorMsg: string | undefined;
 
   try {
-    await db.execute(sql`SELECT 1`);
+    await db.execute(sql`SELECT 1 FROM world_runtime LIMIT 1`);
     pgOk = true;
-  } catch (err) {
-    pgOk = false;
+    migrationOk = true;
+  } catch (err: any) {
+    try {
+      await db.execute(sql`SELECT 1`);
+      pgOk = true;
+      migrationOk = false;
+      errorMsg = 'Missing database migrations: world_runtime table does not exist. Please run npm run migrate.';
+    } catch (_) {
+      pgOk = false;
+      migrationOk = false;
+      errorMsg = 'PostgreSQL database is unavailable.';
+    }
   }
 
   try {
@@ -82,7 +94,7 @@ export async function checkDependenciesHealth(): Promise<{ postgres: boolean; re
     redisOk = false;
   }
 
-  return { postgres: pgOk, redis: redisOk };
+  return { postgres: pgOk, redis: redisOk, migrationOk, error: errorMsg };
 }
 
 export async function tryAcquireCoordinatorLeadership(): Promise<boolean> {
@@ -194,67 +206,78 @@ async function autoCreateNextSeason(leagueRecord: any, previousSeason: any) {
     return null;
   }
 
-  const totalRounds = (leagueTeams.length - 1) * 2;
-  const [newSeason] = await db
-    .insert(seasons)
-    .values({
-      leagueId: leagueRecord.id,
-      name: nextSeasonName,
-      seasonNumber: nextSeasonNumber,
-      status: 'ACTIVE',
-      startAt: new Date(),
-      currentRound: 1,
-      totalRounds,
-    })
-    .returning();
+  const existingSeason = await db.select().from(seasons).where(and(
+    eq(seasons.leagueId, leagueRecord.id),
+    eq(seasons.seasonNumber, nextSeasonNumber)
+  )).limit(1);
 
-  for (const team of leagueTeams) {
-    await db.insert(standings).values({
-      seasonId: newSeason.id,
-      teamId: team.id,
-    }).onConflictDoNothing();
+  if (existingSeason.length > 0) {
+    return existingSeason[0];
+  }
 
-    const [prevRating] = await db
-      .select()
-      .from(teamRatings)
-      .where(and(eq(teamRatings.seasonId, previousSeason.id), eq(teamRatings.teamId, team.id)));
+  return await db.transaction(async (tx) => {
+    const totalRounds = (leagueTeams.length - 1) * 2;
+    const [newSeason] = await tx
+      .insert(seasons)
+      .values({
+        leagueId: leagueRecord.id,
+        name: nextSeasonName,
+        seasonNumber: nextSeasonNumber,
+        status: 'ACTIVE',
+        startAt: new Date(),
+        currentRound: 1,
+        totalRounds,
+      })
+      .returning();
 
-    if (prevRating) {
-      await db.insert(teamRatings).values({
-        teamId: team.id,
+    for (const team of leagueTeams) {
+      await tx.insert(standings).values({
         seasonId: newSeason.id,
-        overallAbility: prevRating.overallAbility,
-        attackStrength: prevRating.attackStrength,
-        defenseStrength: prevRating.defenseStrength,
-        creationRating: prevRating.creationRating,
-        finishingRating: prevRating.finishingRating,
-        goalkeepingRating: prevRating.goalkeepingRating,
-        pressingRating: prevRating.pressingRating,
-        disciplineRating: prevRating.disciplineRating,
-        homeAdvantage: prevRating.homeAdvantage,
-      });
+        teamId: team.id,
+      }).onConflictDoNothing();
+
+      const [prevRating] = await tx
+        .select()
+        .from(teamRatings)
+        .where(and(eq(teamRatings.seasonId, previousSeason.id), eq(teamRatings.teamId, team.id)));
+
+      if (prevRating) {
+        await tx.insert(teamRatings).values({
+          teamId: team.id,
+          seasonId: newSeason.id,
+          overallAbility: prevRating.overallAbility,
+          attackStrength: prevRating.attackStrength,
+          defenseStrength: prevRating.defenseStrength,
+          creationRating: prevRating.creationRating,
+          finishingRating: prevRating.finishingRating,
+          goalkeepingRating: prevRating.goalkeepingRating,
+          pressingRating: prevRating.pressingRating,
+          disciplineRating: prevRating.disciplineRating,
+          homeAdvantage: prevRating.homeAdvantage,
+        }).onConflictDoNothing();
+      }
     }
-  }
 
-  const pairings = generateDoubleRoundRobin(leagueTeams.length);
-  const now = new Date();
-  const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
+    const pairings = generateDoubleRoundRobin(leagueTeams.length);
+    const now = new Date();
+    const firstKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
 
-  const fixturesToInsert = pairings.map((pairing) => ({
-    seasonId: newSeason.id,
-    round: pairing.round,
-    homeTeamId: leagueTeams[pairing.homeTeamIndex].id,
-    awayTeamId: leagueTeams[pairing.awayTeamIndex].id,
-    scheduledAt: pairing.round === 1 ? firstKickoff : new Date(now.getTime() + pairing.round * 86400000),
-    status: 'SCHEDULED',
-  }));
+    const fixturesToInsert = pairings.map((pairing) => ({
+      seasonId: newSeason.id,
+      round: pairing.round,
+      homeTeamId: leagueTeams[pairing.homeTeamIndex].id,
+      awayTeamId: leagueTeams[pairing.awayTeamIndex].id,
+      scheduledAt: pairing.round === 1 ? firstKickoff : new Date(now.getTime() + pairing.round * 86400000),
+      status: 'SCHEDULED',
+    }));
 
-  for (let i = 0; i < fixturesToInsert.length; i += 100) {
-    await db.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));
-  }
+    for (let i = 0; i < fixturesToInsert.length; i += 100) {
+      await tx.insert(fixtures).values(fixturesToInsert.slice(i, i + 100));
+    }
 
-  console.log(`⚽ [WORLD COORDINATOR] Created and activated next season '${newSeason.name}' for league '${leagueRecord.name}' (${fixturesToInsert.length} fixtures scheduled).`);
-  return newSeason;
+    console.log(`⚽ [WORLD COORDINATOR] Created and activated next season '${newSeason.name}' for league '${leagueRecord.name}' (${fixturesToInsert.length} fixtures scheduled).`);
+    return newSeason;
+  });
 }
 
 /**
@@ -263,9 +286,9 @@ async function autoCreateNextSeason(leagueRecord: any, previousSeason: any) {
 export async function tickCoordinator(): Promise<void> {
   const health = await checkDependenciesHealth();
 
-  if (!health.postgres) {
+  if (!health.postgres || !health.migrationOk) {
     currentStatus = 'DEGRADED';
-    degradedReasonStr = 'PostgreSQL database is unavailable.';
+    degradedReasonStr = health.error || 'PostgreSQL database is unavailable or missing migrations.';
     console.error(`❌ [WORLD COORDINATOR] DEGRADED: ${degradedReasonStr}`);
     return;
   }
@@ -385,7 +408,7 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
 
     // Schedule kickoffs for active round fixtures if unscheduled/far future
     for (const f of roundFixtures) {
-      if (f.status === 'SCHEDULED' && f.scheduledAt > now && f.scheduledAt.getTime() - now.getTime() > 1000 * 60 * 60 * 24) {
+      if (f.status === 'SCHEDULED' && f.scheduledAt > now && f.scheduledAt.getTime() - now.getTime() > (env.MARKET_PREPARATION_BUFFER_SECONDS * 1000 + 5000)) {
         const nextKickoff = new Date(now.getTime() + env.MARKET_PREPARATION_BUFFER_SECONDS * 1000);
         await db.update(fixtures).set({ scheduledAt: nextKickoff, updatedAt: new Date() }).where(eq(fixtures.id, f.id));
         f.scheduledAt = nextKickoff;
