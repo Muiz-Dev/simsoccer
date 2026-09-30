@@ -89,23 +89,26 @@ Create a `.env` file in `backend/`:
 ```env
 PORT=8080
 NODE_ENV=development
-DATABASE_URL=postgres://user:password@host:port/dbname?sslmode=require
-REDIS_URL=rediss://user:password@host:port
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/sim_soccer
+REDIS_URL=redis://localhost:6379
 SUPABASE_URL=https://your_project_ref.supabase.co
 SUPABASE_PUBLISHABLE_KEY=your_publishable_key
-SUPABASE_SECRET_KEY=your_secret_key
-ALLOW_UNSAFE_DB=true
-ALLOW_UNSAFE_SEEDS=true
+SUPABASE_JWKS_URL=https://your_project_ref.supabase.co/auth/v1/.well-known/jwks.json
 TICK_RATE_MS=1000
 MATCH_REAL_DURATION_SECONDS=180
 SIMULATION_VERSION=1.0.0
 ```
 
 ### Database Migration
-Run DDL schema migrations:
+Generate versioned Drizzle schema migration files:
+```bash
+npm run db:generate
+```
+
+Run versioned Drizzle schema migrations:
 ```bash
 npm run migrate
-# or: npx tsx src/db/migrate.ts
+# or: npm run db:migrate
 ```
 
 ### Database Seeding

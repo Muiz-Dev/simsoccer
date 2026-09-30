@@ -52,9 +52,19 @@ export async function settleFixtureBets(fixtureId: string) {
         break;
 
       case 'TOTAL_GOALS':
+      case 'TOTAL_GOALS_0.5':
+      case 'TOTAL_GOALS_1.5':
+      case 'TOTAL_GOALS_2.5':
+      case 'TOTAL_GOALS_3.5':
+      case 'TOTAL_GOALS_4.5':
         const totalGoals = homeScore + awayScore;
-        if (selection.outcomeCode === 'OVER_2.5' && totalGoals > 2.5) isWin = true;
-        else if (selection.outcomeCode === 'UNDER_2.5' && totalGoals < 2.5) isWin = true;
+        if (selection.outcomeCode.startsWith('OVER_')) {
+          const threshold = parseFloat(selection.outcomeCode.replace('OVER_', ''));
+          if (totalGoals > threshold) isWin = true;
+        } else if (selection.outcomeCode.startsWith('UNDER_')) {
+          const threshold = parseFloat(selection.outcomeCode.replace('UNDER_', ''));
+          if (totalGoals < threshold) isWin = true;
+        }
         break;
 
       case 'BTTS':
