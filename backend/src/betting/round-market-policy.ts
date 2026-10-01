@@ -1,5 +1,13 @@
 export const ROUND_MARKET_CUTOFF_SECONDS = 60;
 
+export function normalizeTimestamp(value: Date | string): Date {
+  const timestamp = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(timestamp.getTime())) {
+    throw new Error('Invalid database timestamp.');
+  }
+  return timestamp;
+}
+
 export function getRoundCutoffAt(
   kickoffs: Date[],
   cutoffSeconds = ROUND_MARKET_CUTOFF_SECONDS,
@@ -11,16 +19,16 @@ export function getRoundCutoffAt(
   return new Date(Math.min(...validKickoffs) - cutoffSeconds * 1000);
 }
 
-export function isRoundMarketOpen(kickoffs: Date[], now: Date): boolean {
+export function isRoundMarketOpen(kickoffs: Date[], now: Date | string): boolean {
   const cutoffAt = getRoundCutoffAt(kickoffs);
-  return cutoffAt !== null && now < cutoffAt;
+  return cutoffAt !== null && normalizeTimestamp(now) < cutoffAt;
 }
 
 export function selectDefaultBettingRound(
   currentRound: number,
   currentRoundKickoffs: Date[],
   nextRoundKickoffs: Date[],
-  now: Date,
+  now: Date | string,
 ): number {
   if (isRoundMarketOpen(currentRoundKickoffs, now)) return currentRound;
   if (isRoundMarketOpen(nextRoundKickoffs, now)) return currentRound + 1;

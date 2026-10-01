@@ -12,7 +12,7 @@ import {
   teams,
   worldRuntime,
 } from '../db/schema/index';
-import { getRoundCutoffAt, isRoundMarketOpen, selectDefaultBettingRound } from './round-market-policy';
+import { getRoundCutoffAt, isRoundMarketOpen, normalizeTimestamp, selectDefaultBettingRound } from './round-market-policy';
 
 const MAX_BOOKING_SELECTIONS = 20;
 
@@ -60,11 +60,11 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
     : await db.select({ scheduledAt: fixtures.scheduledAt, status: fixtures.status })
       .from(fixtures)
       .where(and(inArray(fixtures.seasonId, activeSeasonIds), eq(fixtures.round, runtime.currentRound + 1)));
-  const [clock] = await db.select({ now: sql<Date>`now()` })
+  const [clock] = await db.select({ now: sql<string>`now()` })
     .from(worldRuntime)
     .where(eq(worldRuntime.id, 'singleton'))
     .limit(1);
-  const serverNow = clock?.now ?? new Date();
+  const serverNow = clock ? normalizeTimestamp(clock.now) : new Date();
   const currentRoundKickoffs = currentRoundFixtures
     .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
     .map((fixture) => fixture.scheduledAt);
@@ -229,8 +229,8 @@ export async function createBookingSlip(selections: BookingSelectionInput[]) {
         .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
         .map((fixture) => fixture.scheduledAt),
     );
-    const [clock] = await tx.select({ now: sql<Date>`now()` }).from(worldRuntime).limit(1);
-    if (!cutoffAt || !clock || clock.now >= cutoffAt) {
+    const [clock] = await tx.select({ now: sql<string>`now()` }).from(worldRuntime).limit(1);
+    if (!cutoffAt || !clock || normalizeTimestamp(clock.now) >= cutoffAt) {
       throw new Error('Betting for this round is suspended.');
     }
 
@@ -333,7 +333,7 @@ export async function loadBookingSlip(rawCode: string) {
       .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
       .map((fixture) => fixture.scheduledAt),
   );
-  const [clock] = await db.select({ now: sql<Date>`now()` })
+  const [clock] = await db.select({ now: sql<string>`now()` })
     .from(worldRuntime)
     .where(eq(worldRuntime.id, 'singleton'))
     .limit(1);
@@ -345,7 +345,7 @@ export async function loadBookingSlip(rawCode: string) {
     && clock !== undefined
     && runtime !== undefined
     && (round === runtime.currentRound || round === runtime.currentRound + 1)
-    && clock.now < cutoffAt;
+    && normalizeTimestamp(clock.now) < cutoffAt;
   const teamIds = [...new Set(rows.flatMap((row) => [row.homeTeamId, row.awayTeamId]))];
   const teamRows = teamIds.length === 0 ? [] : await db.select().from(teams).where(inArray(teams.id, teamIds));
   const teamById = new Map(teamRows.map((team) => [team.id, team]));

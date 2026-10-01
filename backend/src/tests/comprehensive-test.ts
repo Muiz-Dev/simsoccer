@@ -140,6 +140,12 @@ async function runTests() {
     || isRoundMarketOpen([firstKickoff, laterKickoff], cutoff)) {
     throw new Error('❌ Test 4 Failed: Round market cutoff must close exactly 60 seconds before the earliest kickoff.');
   }
+  if (!isRoundMarketOpen(
+    [new Date('2026-10-01T12:32:59.253Z')],
+    '2026-10-01 11:12:26.941445+00',
+  )) {
+    throw new Error('❌ Test 4 Failed: string-valued database timestamps must keep pre-cutoff markets open.');
+  }
   const nextBettingRound = selectDefaultBettingRound(
     5,
     [firstKickoff],
