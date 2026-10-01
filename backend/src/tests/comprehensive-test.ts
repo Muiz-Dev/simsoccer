@@ -1,6 +1,8 @@
 import { getTargetVirtualSecond, getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
+import { calculateStraightMultiple } from '../betting/multiple';
+import { isRoundMarketOpen } from '../betting/round-market-policy';
 import { checkDependenciesHealth, deriveWorldRound, deriveWorldRoundAfterBreak, getRoundKickoffStartAt, getWorldStatusInfo } from '../football/coordinator';
 import { parseVirtualSeasonName, resolveCompetitionDataset } from '../football/seed';
 import { env } from '../config/env';
@@ -104,6 +106,39 @@ async function runTests() {
         throw new Error(`❌ Test 4 Failed: Invalid decimal odds (${outcome.odds}) for outcome '${outcome.outcomeCode}' in market '${m.marketType}'`);
       }
     }
+  }
+
+  const oneXTwo = markets.find((market) => market.marketType === '1X2');
+  const doubleChance = markets.find((market) => market.marketType === 'DOUBLE_CHANCE');
+  const correctScore = markets.find((market) => market.marketType === 'CORRECT_SCORE');
+  const outcomeProbability = (market: typeof oneXTwo, code: string) =>
+    market?.outcomes.find((outcome) => outcome.outcomeCode === code)?.probability ?? 0;
+
+  if (Math.abs(
+    outcomeProbability(doubleChance, '1X') - outcomeProbability(oneXTwo, '1') - outcomeProbability(oneXTwo, 'X')
+  ) > 0.0002) {
+    throw new Error('❌ Test 4 Failed: Double Chance probabilities must preserve overlapping event probabilities.');
+  }
+
+  const listedCorrectScoreProbability = correctScore?.outcomes.reduce((sum, outcome) => sum + outcome.probability, 0) ?? 0;
+  if (listedCorrectScoreProbability >= 0.99) {
+    throw new Error('❌ Test 4 Failed: Listed Correct Score probabilities must not be renormalized to cover unlisted scores.');
+  }
+
+  const multiplePrice = calculateStraightMultiple([
+    { fixtureId: 'fixture-a', odds: 1.79 },
+    { fixtureId: 'fixture-b', odds: 3.70 },
+  ], 100);
+  if (multiplePrice.totalOdds !== '6.62' || multiplePrice.potentialReturn !== '662.00' || multiplePrice.potentialProfit !== '562.00') {
+    throw new Error('❌ Test 4 Failed: Straight multiple price or return calculation is incorrect.');
+  }
+
+  const firstKickoff = new Date('2026-10-01T08:05:00.000Z');
+  const laterKickoff = new Date('2026-10-01T08:06:00.000Z');
+  const cutoff = new Date('2026-10-01T08:04:00.000Z');
+  if (!isRoundMarketOpen([firstKickoff, laterKickoff], new Date(cutoff.getTime() - 1))
+    || isRoundMarketOpen([firstKickoff, laterKickoff], cutoff)) {
+    throw new Error('❌ Test 4 Failed: Round market cutoff must close exactly 60 seconds before the earliest kickoff.');
   }
   console.log('  ✅ Test 4 Passed: Market pricing models, overround margins, and odds generated successfully.\n');
 

@@ -7,8 +7,9 @@ import { env } from './config/env';
 import { db } from './db/index';
 import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
 import { authenticateJwt, requireRole, AuthenticatedRequest } from './auth/jwt';
-import { calculateAllPreMatchMarkets } from './markets/probability-engine';
 import { placePlayMoneyBet } from './betting/bet-service';
+import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
+import { getFixtureStatistics } from './betting/statistics-service';
 import { MatchEngine } from './simulation/match-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
 import { eq, and, asc, desc, inArray } from 'drizzle-orm';
@@ -23,6 +24,20 @@ const adminLoginLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
   message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many admin PIN attempts. Try again later.' },
+});
+const bookingCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many booking codes created. Try again later.' },
+});
+const bookingLookupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many booking lookups. Try again later.' },
 });
 
 function requireAdminOrigin(req: Request, res: Response, next: NextFunction) {
@@ -549,59 +564,69 @@ export function createApp() {
   });
 
   // 4. Markets API — Dynamically derived from team ratings
+  app.get('/api/betting/markets', async (req: Request, res: Response) => {
+    try {
+      const roundValue = req.query.round;
+      const round = roundValue === undefined ? undefined : Number(roundValue);
+      const leagueId = typeof req.query.leagueId === 'string' ? req.query.leagueId : undefined;
+      const result = await listBettingMarkets(round, leagueId);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(400).json({ error: 'MARKET_QUERY_FAILED', message: err.message });
+    }
+  });
+
+  app.get('/api/betting/fixtures/:fixtureId/statistics', bookingLookupLimiter, async (req: Request, res: Response) => {
+    try {
+      const statistics = await getFixtureStatistics(req.params.fixtureId as string);
+      if (!statistics) return res.status(404).json({ error: 'FIXTURE_NOT_FOUND', message: 'Fixture not found.' });
+      return res.json(statistics);
+    } catch (err: any) {
+      return res.status(400).json({ error: 'FIXTURE_STATISTICS_FAILED', message: err.message });
+    }
+  });
+
+  app.post('/api/betting/bookings', bookingCreateLimiter, async (req: Request, res: Response) => {
+    try {
+      const selections = req.body?.selections;
+      if (!Array.isArray(selections) || selections.some((selection) =>
+        typeof selection?.fixtureId !== 'string'
+        || typeof selection?.marketId !== 'string'
+        || typeof selection?.outcomeCode !== 'string'
+      )) {
+        return res.status(400).json({ error: 'INVALID_BOOKING', message: 'Provide fixtureId, marketId, and outcomeCode for every selection.' });
+      }
+      const booking = await createBookingSlip(selections);
+      return res.status(201).json(booking);
+    } catch (err: any) {
+      return res.status(400).json({ error: 'BOOKING_CREATE_FAILED', message: err.message });
+    }
+  });
+
+  app.get('/api/betting/bookings/:code', bookingLookupLimiter, async (req: Request, res: Response) => {
+    try {
+      const booking = await loadBookingSlip(req.params.code as string);
+      return res.json(booking);
+    } catch (err: any) {
+      const notFound = err.message === 'Booking code not found.';
+      return res.status(notFound ? 404 : 400).json({ error: notFound ? 'BOOKING_NOT_FOUND' : 'BOOKING_LOAD_FAILED', message: err.message });
+    }
+  });
+
   app.get('/api/fixtures/:id/markets', async (req: Request, res: Response) => {
     const fixtureId = req.params.id as string;
-    const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixtureId));
-
-    if (existingMarkets.length > 0) {
-      const result = [];
-      for (const m of existingMarkets) {
-        const outcomes = await db.select().from(marketOutcomes).where(eq(marketOutcomes.marketId, m.id));
-        result.push({ ...m, outcomes });
-      }
-      return res.json(result);
-    }
-
-    // Retrieve fixture & team ratings dynamically
     const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
-    let lambdaHome = 1.30;
-    let lambdaAway = 1.05;
+    if (!fixture) return res.status(404).json({ error: 'FIXTURE_NOT_FOUND', message: 'Fixture not found.' });
 
-    if (fixture) {
-      const [homeRating] = await db.select().from(teamRatings).where(and(eq(teamRatings.seasonId, fixture.seasonId), eq(teamRatings.teamId, fixture.homeTeamId)));
-      const [awayRating] = await db.select().from(teamRatings).where(and(eq(teamRatings.seasonId, fixture.seasonId), eq(teamRatings.teamId, fixture.awayTeamId)));
-
-      if (homeRating && awayRating) {
-        lambdaHome = 1.20 * parseFloat(homeRating.attackStrength) * (1 / Math.max(0.5, parseFloat(awayRating.defenseStrength))) * parseFloat(homeRating.homeAdvantage);
-        lambdaAway = 1.05 * parseFloat(awayRating.attackStrength) * (1 / Math.max(0.5, parseFloat(homeRating.defenseStrength)));
-      }
-    }
-
-    // Calculate pre-match markets dynamically
-    const calculated = calculateAllPreMatchMarkets(lambdaHome, lambdaAway);
-    const createdMarkets = [];
-
-    for (const mData of calculated) {
-      const [mRecord] = await db.insert(markets).values({
-        fixtureId,
-        marketType: mData.marketType,
-        status: 'OPEN',
-      }).returning();
-
-      const outcomesToInsert = mData.outcomes.map((o) => ({
-        marketId: mRecord.id,
-        outcomeCode: o.outcomeCode,
-        displayName: o.displayName,
-        probability: o.probability.toFixed(4),
-        odds: o.odds.toFixed(2),
-        status: 'OPEN',
-      }));
-
-      const createdOutcomes = await db.insert(marketOutcomes).values(outcomesToInsert).returning();
-      createdMarkets.push({ ...mRecord, outcomes: createdOutcomes });
-    }
-
-    return res.json(createdMarkets);
+    const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixtureId));
+    const marketIds = existingMarkets.map((market) => market.id);
+    const outcomes = marketIds.length === 0
+      ? []
+      : await db.select().from(marketOutcomes).where(inArray(marketOutcomes.marketId, marketIds));
+    return res.json(existingMarkets.map((market) => ({
+      ...market,
+      outcomes: outcomes.filter((outcome) => outcome.marketId === market.id),
+    })));
   });
 
   // 5. Betting API

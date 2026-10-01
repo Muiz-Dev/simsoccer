@@ -319,6 +319,24 @@ export const settlements = pgTable('settlements', {
   settledAt: timestamp('settled_at').notNull().defaultNow(),
 });
 
+export const bookingSlips = pgTable('booking_slips', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: text('code').notNull().unique(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
+export const bookingSlipSelections = pgTable('booking_slip_selections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bookingSlipId: uuid('booking_slip_id').notNull().references(() => bookingSlips.id),
+  fixtureId: uuid('fixture_id').notNull().references(() => fixtures.id),
+  marketId: uuid('market_id').notNull().references(() => markets.id),
+  marketOutcomeId: uuid('market_outcome_id').notNull().references(() => marketOutcomes.id),
+  quotedOdds: numeric('quoted_odds').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('booking_slip_fixture_idx').on(table.bookingSlipId, table.fixtureId),
+]);
+
 export const simulationRuns = pgTable('simulation_runs', {
   id: uuid('id').primaryKey().defaultRandom(),
   fixtureId: uuid('fixture_id').notNull().references(() => fixtures.id),

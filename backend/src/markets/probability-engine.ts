@@ -16,14 +16,8 @@ export interface CalculatedMarket {
  * Applies bookmaker overround margin (e.g., 5-8%) and converts raw probabilities to decimal odds.
  */
 export function calculateOddsWithMargin(probabilities: Array<{ code: string; name: string; prob: number }>, margin: number = 0.06): MarketOddsItem[] {
-  const totalRawProb = probabilities.reduce((sum, item) => sum + item.prob, 0);
-  const normalizedProbs = probabilities.map((p) => ({
-    ...p,
-    normProb: totalRawProb > 0 ? p.prob / totalRawProb : 1 / probabilities.length,
-  }));
-
-  return normalizedProbs.map((p) => {
-    const marginProb = p.normProb * (1 + margin);
+  return probabilities.map((p) => {
+    const marginProb = p.prob * (1 + margin);
     const rawDecimalOdds = marginProb > 0 ? 1 / marginProb : 100.0;
     const roundedOdds = new Decimal(rawDecimalOdds).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     const finalOdds = Math.max(1.01, roundedOdds);
@@ -31,7 +25,7 @@ export function calculateOddsWithMargin(probabilities: Array<{ code: string; nam
     return {
       outcomeCode: p.code,
       displayName: p.name,
-      probability: parseFloat(p.normProb.toFixed(4)),
+      probability: parseFloat(p.prob.toFixed(4)),
       odds: finalOdds,
     };
   });

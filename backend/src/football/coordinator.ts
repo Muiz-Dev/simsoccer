@@ -1,12 +1,13 @@
 import postgres from 'postgres';
 import Redis from 'ioredis';
 import { db } from '../db/index';
-import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, teamRatings, standings, betSelections } from '../db/schema/index';
+import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, oddsSnapshots, teamRatings, standings, betSelections } from '../db/schema/index';
 import { eq, and, or, sql, asc, desc, inArray } from 'drizzle-orm';
 import { env } from '../config/env';
 import { simulationQueue, settlementQueue } from '../workers/queues';
 import { buildSimulationInput } from './match-input';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
+import { getRoundCutoffAt } from '../betting/round-market-policy';
 import { generateDoubleRoundRobin } from './fixture-generator';
 
 const ADVISORY_LOCK_ID = 88812388;
@@ -576,15 +577,34 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
 
   const currentRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound);
   const marketOpenAt = env.MARKET_PREPARATION_BUFFER_SECONDS * 1000;
+  const roundCutoffAt = getRoundCutoffAt(
+    currentRoundFixtures
+      .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
+      .map((fixture) => fixture.scheduledAt),
+  );
+  const roundFixtureIds = currentRoundFixtures.map((fixture) => fixture.id);
+  const marketPreparationDeadline = currentRoundFixtures
+    .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
+    .reduce((earliest: Date | null, fixture) => !earliest || fixture.scheduledAt < earliest ? fixture.scheduledAt : earliest, null);
+
+  if (marketPreparationDeadline && marketPreparationDeadline.getTime() - now.getTime() <= marketOpenAt) {
+    const scheduledFixtures = currentRoundFixtures.filter((fixture) => fixture.status === 'SCHEDULED');
+    for (const fixture of scheduledFixtures) {
+      const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixture.id));
+      if (existingMarkets.length === 0) {
+        await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+      }
+    }
+  }
+
+  if (roundCutoffAt && now >= roundCutoffAt && roundFixtureIds.length > 0) {
+    await db.update(markets)
+      .set({ status: 'SUSPENDED', updatedAt: now })
+      .where(and(inArray(markets.fixtureId, roundFixtureIds), eq(markets.status, 'OPEN')));
+  }
+
   for (const fixture of currentRoundFixtures) {
     if (fixture.status === 'SCHEDULED') {
-      if (fixture.scheduledAt.getTime() - now.getTime() <= marketOpenAt) {
-        const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixture.id));
-        if (existingMarkets.length === 0) {
-          await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
-        }
-      }
-
       if (fixture.scheduledAt <= now) {
         await db.update(markets).set({ status: 'CLOSED', updatedAt: now }).where(eq(markets.fixtureId, fixture.id));
         await triggerOrCatchUpMatch(fixture);
@@ -629,7 +649,13 @@ async function prepareFixtureMarkets(fixtureId: string, seasonId: string, homeTe
       status: 'OPEN',
     }));
 
-    await db.insert(marketOutcomes).values(outcomesToInsert);
+    const insertedOutcomes = await db.insert(marketOutcomes).values(outcomesToInsert).returning();
+    await db.insert(oddsSnapshots).values(insertedOutcomes.map((outcome) => ({
+      marketId: outcome.marketId,
+      outcomeCode: outcome.outcomeCode,
+      odds: outcome.odds,
+      virtualSecond: 0,
+    })));
   }
 }
 
