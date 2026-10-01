@@ -127,6 +127,12 @@ const QUICK_MARKETS: QuickMarket[] = [
   { marketType: "TOTAL_GOALS_2.5", outcomeCode: "OVER_2.5", label: "O 2.5" },
   { marketType: "TOTAL_GOALS_2.5", outcomeCode: "UNDER_2.5", label: "U 2.5" },
 ];
+const MOBILE_MARKET_SETS = [
+  { id: "1X2", label: "Match result", markets: QUICK_MARKETS.slice(0, 3) },
+  { id: "DOUBLE_CHANCE", label: "Double chance", markets: QUICK_MARKETS.slice(3, 6) },
+  { id: "TOTAL_GOALS_2.5", label: "Goals 2.5", markets: QUICK_MARKETS.slice(6, 8) },
+] as const;
+type MobileMarketSetId = (typeof MOBILE_MARKET_SETS)[number]["id"];
 
 function formatTimeRemaining(seconds: number) {
   if (seconds <= 0) return "closed";
@@ -197,11 +203,27 @@ export default function BettingDesk() {
   const [fixtureStatistics, setFixtureStatistics] = useState<FixtureStatistics | null>(null);
   const [statisticsLoading, setStatisticsLoading] = useState(false);
   const [mobileSlipOpen, setMobileSlipOpen] = useState(false);
+  const [mobileMarketSetId, setMobileMarketSetId] = useState<MobileMarketSetId>("1X2");
   const [bookingCode, setBookingCode] = useState("");
   const [savedCode, setSavedCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!mobileSlipOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileSlipOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [mobileSlipOpen]);
 
   useEffect(() => {
     let stopped = false;
@@ -258,6 +280,7 @@ export default function BettingDesk() {
   ).values());
   const selectedFixtures = (data?.fixtures ?? []).filter((fixture) => fixture.league?.id === selectedLeagueId);
   const expandedFixture = selectedFixtures.find((fixture) => fixture.id === expandedFixtureId) ?? null;
+  const selectedMobileMarketSet = MOBILE_MARKET_SETS.find((set) => set.id === mobileMarketSetId) ?? MOBILE_MARKET_SETS[0];
 
   function resolveSelection(selection: Selection): Selection {
     const fixture = data?.fixtures.find((item) => item.id === selection.fixtureId);
@@ -408,7 +431,10 @@ export default function BettingDesk() {
         aria-pressed={isSelected}
         onClick={() => result && chooseOutcome(fixture, result.market, result.outcome)}
       >
-        {result ? Number(result.outcome.odds).toFixed(2) : "—"}
+        {result ? <>
+          <span className={styles.oddsLabel}>{label}</span>
+          <strong>{Number(result.outcome.odds).toFixed(2)}</strong>
+        </> : "—"}
       </button>
     );
   }
@@ -584,6 +610,20 @@ export default function BettingDesk() {
             <span />
           </div>
 
+          <div className={styles.mobileMarketTabs} role="tablist" aria-label="Quick market type">
+            {MOBILE_MARKET_SETS.map((set) => (
+              <button
+                key={set.id}
+                type="button"
+                role="tab"
+                aria-selected={mobileMarketSetId === set.id}
+                onClick={() => setMobileMarketSetId(set.id)}
+              >
+                {set.label}
+              </button>
+            ))}
+          </div>
+
           {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
           {message ? <p className={styles.statusBanner} role="status">{message}</p> : null}
           {loading && !data ? <p className={styles.emptyState}>Loading markets…</p> : null}
@@ -617,7 +657,9 @@ export default function BettingDesk() {
                         <strong>{fixture.awayTeam?.shortName ?? fixture.awayTeam?.name ?? "Away"}</strong>
                       </div>
                     </div>
-                    {QUICK_MARKETS.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
+                    <div className={styles.desktopQuickMarkets}>
+                      {QUICK_MARKETS.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
+                    </div>
                     <button
                       className={styles.moreButton}
                       type="button"
@@ -631,6 +673,11 @@ export default function BettingDesk() {
                       <ExpandMoreIcon aria-hidden="true" />
                     </button>
                   </div>
+                  <div className={styles.mobileMarketPicker}>
+                    <div className={styles.mobileOddsGrid}>
+                      {selectedMobileMarketSet.markets.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
+                    </div>
+                  </div>
                   {!fixtureCanBet ? <span className={styles.fixtureState}>Markets suspended</span> : null}
                 </article>
               );
@@ -638,7 +685,17 @@ export default function BettingDesk() {
           </div>
         </section>
 
-        <aside className={styles.slipPanel} data-mobile-open={mobileSlipOpen}>
+        {mobileSlipOpen ? (
+          <button className={styles.slipScrim} type="button" aria-label="Close bet slip" onClick={() => setMobileSlipOpen(false)} />
+        ) : null}
+
+        <aside
+          className={styles.slipPanel}
+          data-mobile-open={mobileSlipOpen}
+          role={mobileSlipOpen ? "dialog" : "complementary"}
+          aria-label="Bet slip"
+          aria-modal={mobileSlipOpen || undefined}
+        >
           <div className={styles.slipTopline}>
             <div>
               <h2>Bet slip <span>{selections.length}</span></h2>
@@ -748,11 +805,17 @@ export default function BettingDesk() {
         </div>
       ) : null}
 
-      <div className={styles.mobileSlipBar} aria-hidden="true">
-        <span>{selections.length} selections</span>
-        <strong>{roundedTotalOdds}</strong>
-        <button type="button" tabIndex={-1} onClick={() => setMobileSlipOpen(true)}>Bet slip</button>
-      </div>
+      {!mobileSlipOpen ? (
+        <div className={styles.mobileSlipBar}>
+          <button type="button" aria-expanded={false} onClick={() => setMobileSlipOpen(true)}>
+            <span className={styles.mobileSlipTitle}>Bet slip <strong>{selections.length}</strong></span>
+            <span className={styles.mobileSlipSummary}>
+              {selections.length ? `Combined odds ${roundedTotalOdds}` : "Choose an outcome"}
+            </span>
+            <span className={styles.mobileSlipAction}>Open</span>
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }

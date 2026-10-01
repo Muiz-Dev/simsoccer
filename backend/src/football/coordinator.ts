@@ -659,8 +659,12 @@ async function prepareFixtureMarkets(fixtureId: string, seasonId: string, homeTe
   const [homeRating] = await db.select().from(teamRatings).where(and(eq(teamRatings.seasonId, seasonId), eq(teamRatings.teamId, homeTeamId)));
   const [awayRating] = await db.select().from(teamRatings).where(and(eq(teamRatings.seasonId, seasonId), eq(teamRatings.teamId, awayTeamId)));
 
-  let lambdaHome = 1.30;
-  let lambdaAway = 1.05;
+  const defaultExpectedGoals = calculateExpectedGoals(
+    { attackStrength: 1, defenseStrength: 1 },
+    { attackStrength: 1, defenseStrength: 1 },
+  );
+  let lambdaHome = defaultExpectedGoals.lambdaHome;
+  let lambdaAway = defaultExpectedGoals.lambdaAway;
 
   if (homeRating && awayRating) {
     const expectedGoals = calculateExpectedGoals({

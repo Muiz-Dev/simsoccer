@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { BASE_GOALS_PER_TEAM_PER_MATCH } from '../simulation/types';
 
 export interface MarketOddsItem {
   outcomeCode: string;
@@ -18,21 +19,34 @@ export interface TeamGoalRating {
   homeAdvantage?: number;
 }
 
+export const STANDARD_MARKET_MARGIN = 0.055;
+
 export function calculateExpectedGoals(home: TeamGoalRating, away: TeamGoalRating) {
   return {
-    lambdaHome: 1.20 * home.attackStrength
+    lambdaHome: BASE_GOALS_PER_TEAM_PER_MATCH * home.attackStrength
       * (1 / Math.max(0.5, away.defenseStrength))
       * (home.homeAdvantage ?? 1.10),
-    lambdaAway: 1.05 * away.attackStrength
+    lambdaAway: BASE_GOALS_PER_TEAM_PER_MATCH * away.attackStrength
       * (1 / Math.max(0.5, home.defenseStrength)),
   };
 }
 
 /**
- * Applies bookmaker overround margin (e.g., 5-8%) and converts raw probabilities to decimal odds.
+ * Applies the standard bookmaker overround and converts fair probabilities to decimal odds.
  */
-export function calculateOddsWithMargin(probabilities: Array<{ code: string; name: string; prob: number }>, margin: number = 0.06): MarketOddsItem[] {
+export function calculateOddsWithMargin(
+  probabilities: Array<{ code: string; name: string; prob: number }>,
+  margin: number = STANDARD_MARKET_MARGIN,
+): MarketOddsItem[] {
+  if (!Number.isFinite(margin) || margin < 0 || margin >= 1) {
+    throw new Error('Bookmaker margin must be a finite value from 0 up to, but not including, 1.');
+  }
+
   return probabilities.map((p) => {
+    if (!Number.isFinite(p.prob) || p.prob < 0 || p.prob > 1) {
+      throw new Error(`Outcome probability for '${p.code}' must be between 0 and 1.`);
+    }
+
     const marginProb = p.prob * (1 + margin);
     const rawDecimalOdds = marginProb > 0 ? 1 / marginProb : 100.0;
     const roundedOdds = new Decimal(rawDecimalOdds).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();

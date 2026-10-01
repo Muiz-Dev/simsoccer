@@ -224,6 +224,22 @@
   padding-inline: 9px;
 }
 
+.desktopQuickMarkets {
+  display: grid;
+  grid-column: span 8;
+  grid-template-columns: repeat(8, minmax(40px, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
+
+.mobileMarketPicker {
+  display: none;
+}
+
+.mobileMarketTabs {
+  display: none;
+}
+
 .marketKey {
   min-height: 29px;
   background: #f1f3f0;
@@ -306,8 +322,12 @@
 }
 
 .oddsButton {
+  display: flex;
   width: 100%;
   min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   padding: 0 2px;
   border: 1px solid #d7e3da;
   background: var(--desk-pitch);
@@ -317,6 +337,10 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
+}
+
+.oddsLabel {
+  display: none;
 }
 
 .oddsButton:hover:not(:disabled) {
@@ -1043,46 +1067,162 @@
     font-size: 10px;
   }
 
-  .marketKey,
-  .fixtureLine {
-    grid-template-columns: minmax(145px, 1fr) repeat(8, 45px) 28px;
-    min-width: 620px;
-    gap: 3px;
-    padding-inline: 7px;
+  .marketColumn {
+    width: 100%;
+  }
+
+  .marketKey {
+    display: none;
+  }
+
+  .fixtureList {
+    width: 100%;
+    overflow: visible;
   }
 
   .fixture {
-    min-width: 620px;
+    width: 100%;
+    min-width: 0;
   }
 
   .fixtureLine {
-    min-height: 55px;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 6px;
+    padding: 8px 10px 4px;
+  }
+
+  .desktopQuickMarkets {
+    display: none;
+  }
+
+  .fixtureInfo {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+    font-size: 12px;
   }
 
   .teams {
-    font-size: 11px;
+    gap: 6px;
+    font-size: 13px;
   }
 
-  .oddsButton {
-    min-height: 32px;
+  .playButton {
+    width: 32px;
+    height: 32px;
+  }
+
+  .playButton svg {
+    font-size: 19px;
+  }
+
+  .moreButton {
+    width: 40px;
+    height: 40px;
+  }
+
+  .mobileMarketPicker {
+    display: grid;
+    gap: 7px;
+    padding: 4px 10px 10px;
+  }
+
+  .mobileMarketTabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .mobileMarketTabs button {
+    min-width: 0;
+    min-height: 38px;
+    padding: 4px 2px;
+    border: 1px solid var(--desk-rule);
+    background: #f7f8f6;
+    color: #4e5b52;
+    font: inherit;
     font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mobileMarketTabs button[aria-selected="true"] {
+    border-color: var(--desk-pitch);
+    background: #e8f1eb;
+    color: var(--desk-pitch-deep);
+  }
+
+  .mobileOddsGrid {
+    display: flex;
+    gap: 6px;
+  }
+
+  .mobileOddsGrid .oddsButton {
+    min-width: 0;
+    min-height: 46px;
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px;
+    font-size: 14px;
+  }
+
+  .oddsLabel {
+    display: block;
+    color: #d7eadf;
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.1;
+  }
+
+  .mobileOddsGrid .oddsButton:disabled .oddsLabel {
+    color: #7f8982;
+  }
+
+  .mobileOddsGrid .oddsButton strong {
+    font-size: 14px;
+  }
+
+  .fixtureState {
+    padding: 0 10px 8px;
+  }
+
+  .slipScrim {
+    position: fixed;
+    z-index: 6;
+    inset: 0;
+    padding: 0;
+    border: 0;
+    background: rgb(12 19 15 / 54%);
   }
 
   .slipPanel {
     position: fixed;
-    z-index: 5;
+    z-index: 7;
     inset: auto 0 0;
-    display: block;
+    display: none;
     width: 100%;
-    max-height: min(82svh, 700px);
+    max-height: min(76svh, 680px);
     overflow: auto;
     border-top: 2px solid #16864f;
+    border-radius: 8px 8px 0 0;
     box-shadow: 0 -8px 24px rgb(10 18 13 / 20%);
   }
 
+  .slipPanel[data-mobile-open="true"] {
+    display: block;
+  }
+
   .slipTopline {
+    position: sticky;
+    z-index: 1;
+    top: 0;
     min-height: 54px;
     padding: 8px 14px;
+    background: var(--desk-slip);
   }
 
   .slipTopline h2 {
@@ -1091,8 +1231,8 @@
 
   .mobileSlipToggle {
     display: block;
-    min-width: 60px;
-    min-height: 33px;
+    min-width: 72px;
+    min-height: 44px;
     border: 1px solid #6f7a72;
     background: transparent;
     color: white;
@@ -1101,13 +1241,15 @@
     cursor: pointer;
   }
 
-  .slipPanel[data-mobile-open="false"] .slipTabs,
-  .slipPanel[data-mobile-open="false"] .slipContent {
-    display: none;
-  }
-
   .slipPanel[data-mobile-open="true"] {
     padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .slipTabs {
+    position: sticky;
+    z-index: 1;
+    top: 54px;
+    background: var(--desk-slip);
   }
 
   .slipContent {
@@ -1115,41 +1257,74 @@
   }
 
   .selectionList {
-    max-height: 34vh;
+    max-height: none;
+    overflow: visible;
   }
 
   .mobileSlipBar {
     position: fixed;
-    z-index: 4;
+    z-index: 5;
     right: 0;
     bottom: 0;
     left: 0;
-    display: flex;
-    min-height: 52px;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
-    border-top: 1px solid #d6ded7;
-    background: #ffffff;
-    color: var(--desk-ink);
-    font-size: 12px;
-  }
-
-  .mobileSlipBar strong {
-    margin-left: auto;
-    padding-right: 14px;
-    font-variant-numeric: tabular-nums;
+    display: block;
+    padding: 7px 12px calc(7px + env(safe-area-inset-bottom));
+    border-top: 1px solid #424943;
+    background: var(--desk-slip);
+    color: #f5f7f5;
+    box-shadow: 0 -5px 16px rgb(10 18 13 / 14%);
   }
 
   .mobileSlipBar button {
-    min-height: 34px;
-    padding: 0 13px;
+    display: grid;
+    width: 100%;
+    min-height: 48px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 2px;
     border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .mobileSlipTitle {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .mobileSlipTitle strong {
+    display: grid;
+    min-width: 22px;
+    height: 22px;
+    place-items: center;
+    background: var(--desk-pitch);
+    font-size: 11px;
+  }
+
+  .mobileSlipSummary {
+    overflow: hidden;
+    color: #c4cdc6;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobileSlipAction {
+    min-width: 58px;
+    padding: 9px 10px;
     background: var(--desk-pitch);
     color: white;
-    font: inherit;
     font-size: 12px;
     font-weight: 700;
+    text-align: center;
   }
 
   .expandedGrid {

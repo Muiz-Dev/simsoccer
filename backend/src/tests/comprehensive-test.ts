@@ -1,6 +1,11 @@
 import { getTargetVirtualSecond, getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
-import { MatchSimulationInput } from '../simulation/types';
-import { calculateAllPreMatchMarkets, calculateExpectedGoals } from '../markets/probability-engine';
+import { calculateHazardRates, MatchSimulationInput } from '../simulation/types';
+import {
+  calculateAllPreMatchMarkets,
+  calculateExpectedGoals,
+  calculateOddsWithMargin,
+  STANDARD_MARKET_MARGIN,
+} from '../markets/probability-engine';
 import { calculateStraightMultiple } from '../betting/multiple';
 import { isRoundMarketOpen, selectDefaultBettingRound, selectVisibleBettingRound } from '../betting/round-market-policy';
 import { checkDependenciesHealth, deriveWorldRound, deriveWorldRoundAfterBreak, getRoundKickoffStartAt, getWorldStatusInfo } from '../football/coordinator';
@@ -76,6 +81,26 @@ async function runTests() {
   const awayWinPct = ((awayWins / sampleCount) * 100).toFixed(1);
   const over25Pct = ((over25Count / sampleCount) * 100).toFixed(1);
 
+  const calibrationExpectedGoals = calculateExpectedGoals(input.homeTeam, input.awayTeam);
+  const calibratedMarkets = calculateAllPreMatchMarkets(calibrationExpectedGoals.lambdaHome, calibrationExpectedGoals.lambdaAway);
+  const calibratedOneXTwo = calibratedMarkets.find((market) => market.marketType === '1X2');
+  const calibratedOverUnder = calibratedMarkets.find((market) => market.marketType === 'TOTAL_GOALS_2.5');
+  const modeledProbabilities = [
+    calibratedOneXTwo?.outcomes.find((outcome) => outcome.outcomeCode === '1')?.probability ?? 0,
+    calibratedOneXTwo?.outcomes.find((outcome) => outcome.outcomeCode === 'X')?.probability ?? 0,
+    calibratedOneXTwo?.outcomes.find((outcome) => outcome.outcomeCode === '2')?.probability ?? 0,
+    calibratedOverUnder?.outcomes.find((outcome) => outcome.outcomeCode === 'OVER_2.5')?.probability ?? 0,
+  ];
+  const simulatedProbabilities = [
+    homeWins / sampleCount,
+    draws / sampleCount,
+    awayWins / sampleCount,
+    over25Count / sampleCount,
+  ];
+  if (modeledProbabilities.some((probability, index) => Math.abs(probability - simulatedProbabilities[index]) > 0.05)) {
+    throw new Error(`❌ Test 3 Failed: Poisson pricing probabilities diverge from simulator frequencies. Model ${modeledProbabilities.map((value) => value.toFixed(3)).join('/')} vs simulated ${simulatedProbabilities.map((value) => value.toFixed(3)).join('/')}.`);
+  }
+
   console.log(`  📊 Monte Carlo Results over ${sampleCount} Matches:`);
   console.log(`     Average Goals: Home ${avgHomeGoals} - ${avgAwayGoals} Away (Total Avg: ${(parseFloat(avgHomeGoals) + parseFloat(avgAwayGoals)).toFixed(2)})`);
   console.log(`     Home Wins: ${homeWinPct}% | Draws: ${drawPct}% | Away Wins: ${awayWinPct}%`);
@@ -111,6 +136,7 @@ async function runTests() {
   const oneXTwo = markets.find((market) => market.marketType === '1X2');
   const doubleChance = markets.find((market) => market.marketType === 'DOUBLE_CHANCE');
   const correctScore = markets.find((market) => market.marketType === 'CORRECT_SCORE');
+  const totalGoals25 = markets.find((market) => market.marketType === 'TOTAL_GOALS_2.5');
   const outcomeProbability = (market: typeof oneXTwo, code: string) =>
     market?.outcomes.find((outcome) => outcome.outcomeCode === code)?.probability ?? 0;
 
@@ -118,6 +144,42 @@ async function runTests() {
     outcomeProbability(doubleChance, '1X') - outcomeProbability(oneXTwo, '1') - outcomeProbability(oneXTwo, 'X')
   ) > 0.0002) {
     throw new Error('❌ Test 4 Failed: Double Chance probabilities must preserve overlapping event probabilities.');
+  }
+
+  for (const outcome of doubleChance?.outcomes ?? []) {
+    const expectedImpliedProbability = outcome.probability * (1 + STANDARD_MARKET_MARGIN);
+    if (Math.abs((1 / outcome.odds) - expectedImpliedProbability) > 0.003) {
+      throw new Error(`❌ Test 4 Failed: Double Chance price for '${outcome.outcomeCode}' does not match its event probability and margin.`);
+    }
+  }
+
+  const standardMarginMarkets = [oneXTwo, totalGoals25, markets.find((market) => market.marketType === 'BTTS')];
+  for (const market of standardMarginMarkets) {
+    const impliedOverround = (market?.outcomes ?? []).reduce((sum, outcome) => sum + 1 / outcome.odds, 0) - 1;
+    if (!market || Math.abs(impliedOverround - STANDARD_MARKET_MARGIN) > 0.008) {
+      throw new Error(`❌ Test 4 Failed: market '${market?.marketType ?? 'unknown'}' should price near a ${(STANDARD_MARKET_MARGIN * 100).toFixed(1)}% overround, got ${(impliedOverround * 100).toFixed(2)}%.`);
+    }
+  }
+
+  const balancedMarketOdds = calculateAllPreMatchMarkets(1.3, 1.3);
+  const favoriteMarketOdds = calculateAllPreMatchMarkets(2.0, 0.9);
+  const higherScoringMarketOdds = calculateAllPreMatchMarkets(1.8, 1.6);
+  const marketOdds = (calculated: typeof markets, marketType: string, outcomeCode: string) =>
+    calculated.find((market) => market.marketType === marketType)?.outcomes
+      .find((outcome) => outcome.outcomeCode === outcomeCode)?.odds ?? Number.NaN;
+  if (marketOdds(favoriteMarketOdds, '1X2', '1') >= marketOdds(balancedMarketOdds, '1X2', '1')
+    || marketOdds(higherScoringMarketOdds, 'TOTAL_GOALS_2.5', 'OVER_2.5') >= marketOdds(balancedMarketOdds, 'TOTAL_GOALS_2.5', 'OVER_2.5')) {
+    throw new Error('❌ Test 4 Failed: odds must shorten as an outcome becomes more probable.');
+  }
+
+  let invalidProbabilityRejected = false;
+  try {
+    calculateOddsWithMargin([{ code: 'INVALID', name: 'Invalid', prob: 1.1 }]);
+  } catch {
+    invalidProbabilityRejected = true;
+  }
+  if (!invalidProbabilityRejected) {
+    throw new Error('❌ Test 4 Failed: pricing must reject probabilities outside the [0, 1] range.');
   }
 
   const listedCorrectScoreProbability = correctScore?.outcomes.reduce((sum, outcome) => sum + outcome.probability, 0) ?? 0;
@@ -169,8 +231,24 @@ async function runTests() {
     { attackStrength: 1.2, defenseStrength: 1.5, homeAdvantage: 1.1 },
     { attackStrength: 1, defenseStrength: 4 },
   );
-  if (Math.abs(expectedGoals.lambdaAway - 0.7) > 0.0001) {
-    throw new Error('❌ Test 4 Failed: away expected goals must use the home team defence rating.');
+  if (Math.abs(expectedGoals.lambdaAway - (1.3 / 1.5)) > 0.0001) {
+    throw new Error('❌ Test 4 Failed: away expected goals must use the simulator baseline and home defence rating.');
+  }
+  const pricingInput: MatchSimulationInput = {
+    ...input,
+    homeTeam: { ...input.homeTeam, defenseStrength: 1.5 },
+    awayTeam: { ...input.awayTeam, defenseStrength: 4 },
+  };
+  const pricingState = new MatchEngine(pricingInput).initializeState();
+  const initialHazards = calculateHazardRates(pricingState, pricingInput);
+  if (Math.abs(expectedGoals.lambdaHome - initialHazards.homeGoalHazard * 5400) > 0.0001
+    || Math.abs(expectedGoals.lambdaAway - initialHazards.awayGoalHazard * 5400) > 0.0001) {
+    throw new Error('❌ Test 4 Failed: pricing expected goals diverge from initial simulator goal hazards.');
+  }
+
+  const impliedOneXTwoOverround = (oneXTwo?.outcomes ?? []).reduce((sum, outcome) => sum + 1 / outcome.odds, 0) - 1;
+  if (Math.abs(impliedOneXTwoOverround - STANDARD_MARKET_MARGIN) > 0.008) {
+    throw new Error(`❌ Test 4 Failed: expected approximately ${(STANDARD_MARKET_MARGIN * 100).toFixed(1)}% 1X2 overround, got ${(impliedOneXTwoOverround * 100).toFixed(2)}%.`);
   }
   console.log('  ✅ Test 4 Passed: Market pricing models, overround margins, and odds generated successfully.\n');
 

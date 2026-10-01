@@ -127,6 +127,8 @@ export interface SimulationResult {
   timelineHash: string;
 }
 
+export const BASE_GOALS_PER_TEAM_PER_MATCH = 1.3;
+
 /**
  * Calculates current event hazard rates (per second) based on the dynamic match state.
  */
@@ -150,7 +152,7 @@ export function calculateHazardRates(state: DynamicMatchState, input: MatchSimul
   }
 
   // Base goal hazard per second (e.g. ~1.3 goals per 5400s)
-  const baseGoalRatePerSec = 1.3 / 5400;
+  const baseGoalRatePerSec = BASE_GOALS_PER_TEAM_PER_MATCH / 5400;
 
   const homeGoalHazard = baseGoalRatePerSec * (homeAttack / awayDefense) * homeRedMod * (1 / awayRedMod) * homeTrailingRisk * (1 + state.latentStochasticState * 0.2);
   const awayGoalHazard = baseGoalRatePerSec * (awayAttack / homeDefense) * awayRedMod * (1 / homeRedMod) * awayTrailingRisk * (1 - state.latentStochasticState * 0.2);
