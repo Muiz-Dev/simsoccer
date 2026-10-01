@@ -283,14 +283,12 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
         ))}
       </nav>
 
-      <section className={styles.masthead} data-enter>
+      <section className={`${styles.masthead} ${styles.mastheadCentered}`} data-enter>
         <div>
-          <p className={styles.kicker}>Simulated football · live world</p>
           <h1>{viewTitle[view]}</h1>
         </div>
         <div className={styles.roundSummary}>
-          <span>{selectedLeague?.season?.name ?? "Waiting for season"}</span>
-          <strong>Round {selectedLeague?.season?.currentRound ?? 0}<span>/</span>{selectedLeague?.season?.totalRounds ?? 0}</strong>
+          <strong>Round {selectedLeague?.season?.currentRound ?? 0}</strong>
         </div>
       </section>
 
@@ -355,7 +353,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           <>
             <div className={styles.sectionHeading} data-enter>
               <h2>{selectedLeague?.league.name ?? "League table"}</h2>
-              <span className={styles.count}>{selectedLeague?.season?.name ?? "Season"}</span>
             </div>
             {overview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : !error ? <StandingsSkeleton /> : (
               <p className={styles.empty}>The table is unavailable. Use refresh to try again.</p>
@@ -364,9 +361,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
         ) : null}
       </section>
 
-      <footer className={styles.footer}>
-        <span>Clock synced to match server</span>
-      </footer>
     </main>
   );
 }

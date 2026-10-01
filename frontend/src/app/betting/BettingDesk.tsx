@@ -127,12 +127,11 @@ const QUICK_MARKETS: QuickMarket[] = [
   { marketType: "TOTAL_GOALS_2.5", outcomeCode: "OVER_2.5", label: "O 2.5" },
   { marketType: "TOTAL_GOALS_2.5", outcomeCode: "UNDER_2.5", label: "U 2.5" },
 ];
-const MOBILE_MARKET_SETS = [
-  { id: "1X2", label: "Match result", markets: QUICK_MARKETS.slice(0, 3) },
+const MOBILE_QUICK_MARKET_GROUPS = [
+  { id: "1X2", label: "1X2", markets: QUICK_MARKETS.slice(0, 3) },
   { id: "DOUBLE_CHANCE", label: "Double chance", markets: QUICK_MARKETS.slice(3, 6) },
-  { id: "TOTAL_GOALS_2.5", label: "Goals 2.5", markets: QUICK_MARKETS.slice(6, 8) },
+  { id: "TOTAL_GOALS_2.5", label: "Over/Under 2.5", markets: QUICK_MARKETS.slice(6, 8) },
 ] as const;
-type MobileMarketSetId = (typeof MOBILE_MARKET_SETS)[number]["id"];
 
 function formatTimeRemaining(seconds: number) {
   if (seconds <= 0) return "closed";
@@ -155,7 +154,7 @@ async function readApiResponse<T>(response: Response, fallbackMessage: string): 
 
 function marketLabel(marketType: string) {
   if (marketType.startsWith("TOTAL_GOALS_")) return `Total goals ${marketType.slice("TOTAL_GOALS_".length)}`;
-  if (marketType === "1X2") return "Match result";
+  if (marketType === "1X2") return "1X2";
   if (marketType === "DOUBLE_CHANCE") return "Double chance";
   if (marketType === "BTTS") return "Both teams to score";
   if (marketType === "CORRECT_SCORE") return "Correct score";
@@ -203,7 +202,6 @@ export default function BettingDesk() {
   const [fixtureStatistics, setFixtureStatistics] = useState<FixtureStatistics | null>(null);
   const [statisticsLoading, setStatisticsLoading] = useState(false);
   const [mobileSlipOpen, setMobileSlipOpen] = useState(false);
-  const [mobileMarketSetId, setMobileMarketSetId] = useState<MobileMarketSetId>("1X2");
   const [bookingCode, setBookingCode] = useState("");
   const [savedCode, setSavedCode] = useState("");
   const [message, setMessage] = useState("");
@@ -280,7 +278,6 @@ export default function BettingDesk() {
   ).values());
   const selectedFixtures = (data?.fixtures ?? []).filter((fixture) => fixture.league?.id === selectedLeagueId);
   const expandedFixture = selectedFixtures.find((fixture) => fixture.id === expandedFixtureId) ?? null;
-  const selectedMobileMarketSet = MOBILE_MARKET_SETS.find((set) => set.id === mobileMarketSetId) ?? MOBILE_MARKET_SETS[0];
 
   function resolveSelection(selection: Selection): Selection {
     const fixture = data?.fixtures.find((item) => item.id === selection.fixtureId);
@@ -560,12 +557,7 @@ export default function BettingDesk() {
 
       <div className={styles.titleBar}>
         <div>
-          <p className={styles.eyebrow}>Markets</p>
           <h1>Football</h1>
-        </div>
-        <div className={styles.roundStatus} aria-label="Active market round">
-          <span>Active market round</span>
-          <strong>Round {round ?? "—"}</strong>
         </div>
       </div>
 
@@ -592,8 +584,8 @@ export default function BettingDesk() {
         <section className={styles.marketColumn} aria-label="Fixture markets">
           <div className={styles.marketHeading}>
             <div>
-              <span className={styles.roundLabel}>{selectedFixtures[0]?.league?.name ?? "World fixtures"} · {timeZone.replaceAll("_", " ")}</span>
-              <h2>Round {round ?? "—"}</h2>
+              <span className={styles.roundLabel}>{selectedFixtures[0]?.league?.name ?? "World fixtures"}</span>
+                  Book
             </div>
             <span className={styles.cutoffLabel}>
               {cutoffSeconds !== null
@@ -608,20 +600,6 @@ export default function BettingDesk() {
             <span>Fixture</span>
             {QUICK_MARKETS.map((market) => <span key={`${market.marketType}-${market.outcomeCode}`}>{market.label}</span>)}
             <span />
-          </div>
-
-          <div className={styles.mobileMarketTabs} role="tablist" aria-label="Quick market type">
-            {MOBILE_MARKET_SETS.map((set) => (
-              <button
-                key={set.id}
-                type="button"
-                role="tab"
-                aria-selected={mobileMarketSetId === set.id}
-                onClick={() => setMobileMarketSetId(set.id)}
-              >
-                {set.label}
-              </button>
-            ))}
           </div>
 
           {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
@@ -673,10 +651,15 @@ export default function BettingDesk() {
                       <ExpandMoreIcon aria-hidden="true" />
                     </button>
                   </div>
-                  <div className={styles.mobileMarketPicker}>
-                    <div className={styles.mobileOddsGrid}>
-                      {selectedMobileMarketSet.markets.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
-                    </div>
+                  <div className={styles.mobileMarketTable} aria-label="Quick markets">
+                    {MOBILE_QUICK_MARKET_GROUPS.map((group) => (
+                      <section className={styles.mobileMarketGroup} key={group.id} aria-label={group.label}>
+                        <h3>{group.label}</h3>
+                        <div className={styles.mobileOddsGrid}>
+                          {group.markets.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
+                        </div>
+                      </section>
+                    ))}
                   </div>
                   {!fixtureCanBet ? <span className={styles.fixtureState}>Markets suspended</span> : null}
                 </article>
@@ -753,7 +736,7 @@ export default function BettingDesk() {
                   <button className={styles.secondaryAction} type="button" onClick={acceptCurrentPrices}>Accept current prices</button>
                 ) : null}
                 <button className={styles.primaryAction} type="button" disabled={!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice} onClick={() => void saveBooking()}>
-                  Save booking code
+                  Book
                 </button>
               </>
             ) : (

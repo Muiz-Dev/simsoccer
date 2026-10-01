@@ -92,11 +92,10 @@
   padding: 27px 0 19px;
 }
 
-.kicker {
-  margin: 0 0 5px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.25;
+.mastheadCentered {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
 .masthead h1 {
@@ -114,15 +113,13 @@
   font-size: 12px;
 }
 
+.mastheadCentered .roundSummary {
+  text-align: center;
+}
+
 .roundSummary strong {
   color: var(--ink);
   font-size: 15px;
-}
-
-.roundSummary strong span {
-  padding: 0 5px;
-  color: #99a19b;
-  font-weight: 400;
 }
 
 .competitionNav {
@@ -418,15 +415,6 @@
     font-weight: 700;
   }
 
-  .footer {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 13px 0 20px;
-    color: var(--muted);
-    font-size: 11px;
-  }
-
   @keyframes live-pulse {
     0% { box-shadow: 0 0 0 0 rgb(167 50 43 / 34%); }
     70% { box-shadow: 0 0 0 5px rgb(167 50 43 / 0%); }
@@ -482,15 +470,33 @@
 
     .table {
       font-size: 12px;
+      table-layout: fixed;
     }
 
     .table th,
     .table td {
-      padding: 0 6px;
+      padding: 0 3px;
     }
 
-    .compactColumn {
-      display: none;
+    .table .clubHead,
+    .table .clubName {
+      width: 32%;
+    }
+
+    .table .clubName {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .table th:first-child,
+    .table td:first-child {
+      width: 23px;
+      padding-inline: 2px;
+    }
+
+    .table thead th {
+      font-size: 10px;
     }
   }
 
@@ -526,9 +532,6 @@
       font-size: 10px;
     }
 
-    .smallColumn {
-      display: none;
-    }
   }
 
   @media (max-width: 360px) {

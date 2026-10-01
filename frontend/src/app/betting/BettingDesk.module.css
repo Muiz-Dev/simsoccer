@@ -77,13 +77,10 @@
 
 .titleBar {
   display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 20px;
+  justify-content: center;
   padding: 22px 0 17px;
 }
 
-.eyebrow,
 .roundLabel {
   margin: 0 0 4px;
   color: var(--desk-muted);
@@ -95,24 +92,7 @@
   font-size: 29px;
   font-weight: 700;
   line-height: 1;
-}
-
-.roundStatus {
-  display: flex;
-  flex-direction: column;
-  align-items: end;
-  gap: 2px;
-  color: var(--desk-ink);
-  font-size: 11px;
-}
-
-.roundStatus span {
-  color: var(--desk-muted);
-}
-
-.roundStatus strong {
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .desk {
@@ -232,11 +212,7 @@
   min-width: 0;
 }
 
-.mobileMarketPicker {
-  display: none;
-}
-
-.mobileMarketTabs {
+.mobileMarketTable {
   display: none;
 }
 
@@ -1003,16 +979,11 @@
   }
 
   .titleBar {
-    align-items: center;
     padding: 17px 0 13px;
   }
 
   .titleBar h1 {
     font-size: 24px;
-  }
-
-  .roundStatus strong {
-    font-size: 14px;
   }
 
   .desk {
@@ -1124,46 +1095,37 @@
     height: 40px;
   }
 
-  .mobileMarketPicker {
+  .mobileMarketTable {
     display: grid;
-    gap: 7px;
-    padding: 4px 10px 10px;
+    gap: 8px;
+    padding: 4px 10px 12px;
   }
 
-  .mobileMarketTabs {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 4px;
-  }
-
-  .mobileMarketTabs button {
+  .mobileMarketGroup {
     min-width: 0;
-    min-height: 38px;
-    padding: 4px 2px;
-    border: 1px solid var(--desk-rule);
-    background: #f7f8f6;
-    color: #4e5b52;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
   }
 
-  .mobileMarketTabs button[aria-selected="true"] {
-    border-color: var(--desk-pitch);
-    background: #e8f1eb;
-    color: var(--desk-pitch-deep);
+  .mobileMarketGroup h3 {
+    margin: 0 0 4px;
+    color: #58635c;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.2;
   }
 
   .mobileOddsGrid {
-    display: flex;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .mobileMarketGroup:last-child .mobileOddsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .mobileOddsGrid .oddsButton {
     min-width: 0;
-    min-height: 46px;
-    flex: 1 1 0;
+    min-height: 44px;
     flex-direction: column;
     gap: 1px;
     padding: 4px;
