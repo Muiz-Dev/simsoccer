@@ -38,8 +38,10 @@ type Fixture = {
 type MarketResponse = {
   round: number;
   worldRound: number;
+  totalRounds?: number;
   currentRoundOpen: boolean;
   defaultRound: number;
+  nextRoundAvailable?: boolean;
   serverNow: string;
   cutoffAt: string | null;
   fixtures: Fixture[];
@@ -186,7 +188,6 @@ function selectionFromMarket(fixture: Fixture, market: Market, outcome: Outcome)
 export default function BettingDesk() {
   const [data, setData] = useState<MarketResponse | null>(null);
   const [round, setRound] = useState<number | null>(null);
-  const [worldRound, setWorldRound] = useState<number | null>(null);
   const [selectedLeagueId, setSelectedLeagueId] = useState("");
   const [selections, setSelections] = useState<Selection[]>([]);
   const [slipView, setSlipView] = useState<"slip" | "booking">("slip");
@@ -217,11 +218,22 @@ export default function BettingDesk() {
         });
         if (stopped) return;
         const marketData = await readApiResponse<MarketResponse>(response, "Market service returned an unreadable response.");
+        const nextRoundAvailable = marketData.nextRoundAvailable ?? (
+          !marketData.currentRoundOpen
+          && marketData.defaultRound === marketData.worldRound
+          && marketData.worldRound < (marketData.totalRounds ?? 38)
+        );
+        const activeRound = marketData.currentRoundOpen
+          ? marketData.worldRound
+          : nextRoundAvailable
+            ? marketData.worldRound + 1
+            : marketData.defaultRound;
+        if (marketData.round !== activeRound) {
+          setRound(activeRound);
+          return;
+        }
         setData(marketData);
-        setWorldRound(marketData.worldRound);
-        setRound((current) => current === null || (current === marketData.worldRound && !marketData.currentRoundOpen)
-          ? marketData.defaultRound
-          : current);
+        setRound(activeRound);
         setSelectedLeagueId((current) => current || marketData.fixtures[0]?.league?.id || "");
         setError("");
       } catch (cause) {
@@ -353,11 +365,6 @@ export default function BettingDesk() {
   function removeSelection(fixtureId: string) {
     setSelections((current) => current.filter((selection) => selection.fixtureId !== fixtureId));
     setSavedCode("");
-  }
-
-  function changeRound(delta: number) {
-    setLoading(true);
-    setRound((current) => current === null ? current : current + delta);
   }
 
   function acceptCurrentPrices() {
@@ -530,22 +537,9 @@ export default function BettingDesk() {
           <p className={styles.eyebrow}>Markets</p>
           <h1>Football</h1>
         </div>
-        <div className={styles.roundControls} aria-label="Choose round">
-          <button
-            type="button"
-            disabled={!data?.currentRoundOpen || worldRound === null || round === null || round <= worldRound}
-            onClick={() => changeRound(-1)}
-          >
-            Previous
-          </button>
+        <div className={styles.roundStatus} aria-label="Active market round">
+          <span>Active market round</span>
           <strong>Round {round ?? "—"}</strong>
-          <button
-            type="button"
-            disabled={worldRound === null || round === null || round >= worldRound + 1}
-            onClick={() => changeRound(1)}
-          >
-            Next
-          </button>
         </div>
       </div>
 

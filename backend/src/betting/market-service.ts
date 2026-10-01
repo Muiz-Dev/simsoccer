@@ -25,7 +25,17 @@ export interface BookingSelectionInput {
 export async function listBettingMarkets(requestedRound?: number, leagueId?: string) {
   const [runtime] = await db.select().from(worldRuntime).where(eq(worldRuntime.id, 'singleton')).limit(1);
   if (!runtime || runtime.currentRound < 1) {
-    return { round: 1, serverNow: new Date(), cutoffAt: null, fixtures: [] };
+    return {
+      round: 1,
+      worldRound: 0,
+      totalRounds: 0,
+      currentRoundOpen: false,
+      defaultRound: 1,
+      nextRoundAvailable: false,
+      serverNow: new Date(),
+      cutoffAt: null,
+      fixtures: [],
+    };
   }
 
   const activeCompetitions = await db.select({
@@ -125,8 +135,10 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
   return {
     round,
     worldRound: runtime.currentRound,
+    totalRounds: runtime.totalRounds,
     currentRoundOpen,
     defaultRound,
+    nextRoundAvailable: isRoundMarketOpen(nextRoundKickoffs, serverNow),
     serverNow,
     cutoffAt,
     fixtures: fixtureRows.map((fixture) => {
