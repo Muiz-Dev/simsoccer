@@ -17,6 +17,9 @@ const envSchema = z.object({
   ADMIN_PIN_PEPPER: z.string().optional(),
   ADMIN_ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
 
+  MIGRATE_BEFORE_BUILD: z.string().optional().default('false').transform((val) => val === 'true'),
+  ALLOW_PRODUCTION_MIGRATIONS: z.string().optional().default('false').transform((val) => val === 'true'),
+  ALLOW_WORLD_RESET: z.string().optional().default('false').transform((val) => val === 'true'),
   ALLOW_UNSAFE_DB: z.string().optional().default('false').transform((val) => val === 'true'),
   ALLOW_UNSAFE_SEEDS: z.string().optional().default('false').transform((val) => val === 'true'),
 

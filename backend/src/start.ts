@@ -3,6 +3,7 @@ import path from 'node:path';
 import Redis from 'ioredis';
 import postgres from 'postgres';
 import { env } from './config/env';
+import { runMigrations } from './db/run-migrations';
 
 const services: Array<{ name: string; entrypoint: string }> = [
   { name: 'API', entrypoint: 'index.js' },
@@ -51,6 +52,7 @@ function stop(exitCode: number): void {
 
 async function start(): Promise<void> {
   await verifyDependencies();
+  await runMigrations();
   if (shuttingDown) return;
 
   for (const service of services) {

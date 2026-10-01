@@ -17,6 +17,12 @@ export function getVirtualStepsToAdvance(
   return Math.max(0, Math.min(maxBatchSize, targetVirtualSecond - currentVirtualSecond + 1));
 }
 
+export function getTargetVirtualSecond(elapsedRealMs: number, matchDurationSeconds: number): number {
+  const totalRealMs = matchDurationSeconds * 1000;
+  if (totalRealMs <= 0) return 5400;
+  return Math.max(0, Math.min(5400, Math.floor((elapsedRealMs / totalRealMs) * 5400)));
+}
+
 export class MatchEngine {
   private rng: seedrandom.PRNG;
 

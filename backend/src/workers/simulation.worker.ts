@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import crypto from 'crypto';
 import { redisConnection, SIMULATION_QUEUE_NAME } from './queues';
-import { getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
+import { getTargetVirtualSecond, getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
 import { processPostMatchEvolution } from '../simulation/evolution';
 import { broadcastMatchEvent } from '../realtime/websocket';
 import { db } from '../db/index';
@@ -42,7 +42,7 @@ export async function executeLiveMatchSimulation(options: {
     const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
     if (!fixture) throw new Error(`Fixture ${fixtureId} not found`);
 
-    const actualStartedAt = fixture.startedAt || fixture.scheduledAt || new Date();
+    const actualStartedAt = fixture.startedAt || new Date();
     if (!fixture.startedAt) {
       await db
         .update(fixtures)
@@ -108,7 +108,6 @@ export async function executeLiveMatchSimulation(options: {
       metadata: e.metadata || {},
     }));
 
-    const totalRealMs = env.MATCH_REAL_DURATION_SECONDS * 1000;
     const kickoffTime = new Date(actualStartedAt).getTime();
 
     // Advance in bounded batches to the wall-clock target without sleeping once per virtual second.
@@ -116,7 +115,7 @@ export async function executeLiveMatchSimulation(options: {
       let targetVirtualSecond = 5400;
       if (!fastMode) {
         const elapsedRealMs = Math.max(0, Date.now() - kickoffTime);
-        targetVirtualSecond = Math.min(5400, Math.floor((elapsedRealMs / totalRealMs) * 5400));
+        targetVirtualSecond = getTargetVirtualSecond(elapsedRealMs, env.MATCH_REAL_DURATION_SECONDS);
 
         // If engine is caught up with real wall-clock time, sleep briefly
         if (state.virtualSecond > targetVirtualSecond) {

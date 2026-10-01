@@ -63,6 +63,43 @@ export function deriveWorldRound(
   return totalRounds;
 }
 
+export function deriveWorldRoundAfterBreak(
+  worldFixtures: Array<{ round: number; status: string; finishedAt?: Date | string | null }>,
+  totalRounds: number,
+  now: Date,
+  roundBreakSeconds: number
+): number {
+  const candidateRound = deriveWorldRound(worldFixtures, totalRounds);
+  if (candidateRound <= 1) return candidateRound;
+
+  const seasonIsFinished = Array.from({ length: totalRounds }, (_, index) => index + 1).every((round) => {
+    const fixtures = worldFixtures.filter((fixture) => fixture.round === round);
+    return fixtures.length > 0 && fixtures.every((fixture) => fixture.status === 'FINISHED' || fixture.status === 'CANCELLED');
+  });
+  if (seasonIsFinished) return candidateRound;
+
+  const previousRoundFixtures = worldFixtures.filter((fixture) => fixture.round === candidateRound - 1);
+  if (previousRoundFixtures.length === 0 || previousRoundFixtures.some((fixture) => fixture.status !== 'FINISHED' && fixture.status !== 'CANCELLED')) {
+    return candidateRound;
+  }
+
+  const latestFinish = previousRoundFixtures.reduce((latest: number | null, fixture) => {
+    if (!fixture.finishedAt) return latest;
+    const finishedAt = new Date(fixture.finishedAt).getTime();
+    return Number.isFinite(finishedAt) && (latest === null || finishedAt > latest) ? finishedAt : latest;
+  }, null);
+  if (latestFinish === null) return candidateRound;
+
+  const nextRoundAt = latestFinish + roundBreakSeconds * 1000;
+  return now.getTime() < nextRoundAt ? candidateRound - 1 : candidateRound;
+}
+
+export function getRoundKickoffStartAt(latestFinish: Date, now: Date, roundBreakSeconds: number, marketPreparationBufferSeconds: number): Date {
+  const roundBreakEndsAt = latestFinish.getTime() + roundBreakSeconds * 1000;
+  const marketPreparationStartsAt = now.getTime() + marketPreparationBufferSeconds * 1000;
+  return new Date(Math.max(roundBreakEndsAt, marketPreparationStartsAt));
+}
+
 let dedicatedLockSql: ReturnType<typeof postgres> | null = null;
 let isLeader = false;
 let loopInterval: NodeJS.Timeout | null = null;
@@ -423,10 +460,46 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
     .where(inArray(fixtures.seasonId, seasonIds))
     .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id));
   const [runtimeRow] = await db.select().from(worldRuntime).where(eq(worldRuntime.id, 'singleton'));
-  let worldRound = deriveWorldRound(allFixtures, totalRounds);
+  const fixtureDerivedRound = deriveWorldRound(allFixtures, totalRounds);
+  let worldRound = deriveWorldRoundAfterBreak(allFixtures, totalRounds, now, env.ROUND_BREAK_SECONDS);
+
+  if (worldRound === fixtureDerivedRound && worldRound > 1) {
+    const previousRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound - 1);
+    const previousRoundIsComplete = previousRoundFixtures.length > 0
+      && previousRoundFixtures.every((fixture) => fixture.status === 'FINISHED' || fixture.status === 'CANCELLED');
+    const latestFinish = previousRoundFixtures.reduce((latest: Date | null, fixture) => {
+      if (!fixture.finishedAt) return latest;
+      return !latest || fixture.finishedAt > latest ? fixture.finishedAt : latest;
+    }, null);
+
+    if (previousRoundIsComplete && latestFinish) {
+      const nextRoundAt = getRoundKickoffStartAt(
+        latestFinish,
+        now,
+        env.ROUND_BREAK_SECONDS,
+        env.MARKET_PREPARATION_BUFFER_SECONDS
+      );
+      const nextRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound);
+      let staleKickoffsCorrected = 0;
+
+      for (let fixtureIndex = 0; fixtureIndex < nextRoundFixtures.length; fixtureIndex++) {
+        const fixture = nextRoundFixtures[fixtureIndex];
+        const expectedKickoff = new Date(nextRoundAt.getTime() + fixtureIndex * env.FIXTURE_KICKOFF_STAGGER_SECONDS * 1000);
+        if (fixture.status === 'SCHEDULED' && fixture.scheduledAt > expectedKickoff) {
+          await db.update(fixtures).set({ scheduledAt: expectedKickoff, updatedAt: now }).where(eq(fixtures.id, fixture.id));
+          fixture.scheduledAt = expectedKickoff;
+          staleKickoffsCorrected++;
+        }
+      }
+
+      if (staleKickoffsCorrected > 0) {
+        console.warn(`⚠️ [WORLD COORDINATOR] Corrected ${staleKickoffsCorrected} stale kickoff times for Round ${worldRound}; the round break ends at ${nextRoundAt.toISOString()}.`);
+      }
+    }
+  }
 
   if (runtimeRow && runtimeRow.currentRound !== worldRound) {
-    console.warn(`⚠️ [WORLD COORDINATOR] Correcting persisted round ${runtimeRow.currentRound} to earliest incomplete shared round ${worldRound}.`);
+    console.warn(`⚠️ [WORLD COORDINATOR] Correcting persisted round ${runtimeRow.currentRound} to the ready shared round ${worldRound}.`);
   }
 
   for (const { league, season } of worldSeasons) {

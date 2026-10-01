@@ -1,21 +1,14 @@
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import { db, client } from './index';
-import { verifySafeDatabase } from './guard';
+import { runMigrations } from './run-migrations';
 
 async function runMigrate() {
   try {
-    verifySafeDatabase('Database Drizzle Versioned Migrations');
-
-    console.log('🚀 Executing versioned Drizzle migrations from ./drizzle...');
-    await migrate(db, { migrationsFolder: './drizzle' });
-    console.log('✅ Drizzle versioned migrations applied successfully.');
-
-    await client.end();
-    process.exit(0);
+    await runMigrations();
   } catch (err: any) {
     console.error('❌ Migration failed:', err.message || err);
+    process.exitCode = 1;
+  } finally {
     await client.end();
-    process.exit(1);
   }
 }
 

@@ -1,7 +1,7 @@
-import { getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
+import { getTargetVirtualSecond, getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
-import { checkDependenciesHealth, deriveWorldRound, getWorldStatusInfo } from '../football/coordinator';
+import { checkDependenciesHealth, deriveWorldRound, deriveWorldRoundAfterBreak, getRoundKickoffStartAt, getWorldStatusInfo } from '../football/coordinator';
 import { parseVirtualSeasonName, resolveCompetitionDataset } from '../football/seed';
 import { env } from '../config/env';
 
@@ -237,15 +237,51 @@ async function runTests() {
   }
   console.log('  ✅ Test 10 Passed: unfinished fixtures take precedence over a stale runtime round.');
 
-  // Test 11: The worker must process the terminal second at full time.
-  console.log('▶ Test 11: Full-Time Worker Batch Boundary...');
+  // Test 11: Do not start the next shared round before the configured break.
+  console.log('▶ Test 11: Shared Round Break Timing...');
+  const previousRoundFinishedAt = new Date('2026-10-01T00:00:00.000Z');
+  const roundTransitionFixtures = [
+    { round: 1, status: 'FINISHED', finishedAt: previousRoundFinishedAt },
+    { round: 2, status: 'SCHEDULED', finishedAt: null },
+  ];
+  const beforeBreak = deriveWorldRoundAfterBreak(
+    roundTransitionFixtures, 2, new Date('2026-10-01T00:09:59.000Z'), 600
+  );
+  const afterBreak = deriveWorldRoundAfterBreak(
+    roundTransitionFixtures, 2, new Date('2026-10-01T00:10:00.000Z'), 600
+  );
+  if (beforeBreak !== 1 || afterBreak !== 2) {
+    throw new Error(`❌ Test 11 Failed: break selected rounds ${beforeBreak} and ${afterBreak}, expected 1 and 2.`);
+  }
+  const recoveredKickoff = getRoundKickoffStartAt(
+    previousRoundFinishedAt,
+    new Date('2026-10-01T01:00:00.000Z'),
+    600,
+    120
+  );
+  if (recoveredKickoff.toISOString() !== '2026-10-01T01:02:00.000Z') {
+    throw new Error(`❌ Test 11 Failed: recovered kickoff was ${recoveredKickoff.toISOString()}, expected a two-minute market window.`);
+  }
+  console.log('  ✅ Test 11 Passed: the world waits through the break and safely reschedules stale kickoffs.');
+
+  // Test 12: Ninety real minutes map to one full simulated match.
+  console.log('▶ Test 12: Real-Time Match Duration...');
+  const halftimeAt45Minutes = getTargetVirtualSecond(45 * 60 * 1000, 90 * 60);
+  const fullTimeAt90Minutes = getTargetVirtualSecond(90 * 60 * 1000, 90 * 60);
+  if (halftimeAt45Minutes !== 2700 || fullTimeAt90Minutes !== 5400) {
+    throw new Error(`❌ Test 12 Failed: 45/90-minute targets were ${halftimeAt45Minutes}/${fullTimeAt90Minutes}, expected 2700/5400.`);
+  }
+  console.log('  ✅ Test 12 Passed: 90 real minutes map to 5,400 virtual seconds.');
+
+  // Test 13: The worker must process the terminal second at full time.
+  console.log('▶ Test 13: Full-Time Worker Batch Boundary...');
   const finalSecondBatch = getVirtualStepsToAdvance(5400, 5400);
   const finalTwoSecondsBatch = getVirtualStepsToAdvance(5399, 5400);
   const noWorkAfterTarget = getVirtualStepsToAdvance(5401, 5400);
   if (finalSecondBatch !== 1 || finalTwoSecondsBatch !== 2 || noWorkAfterTarget !== 0) {
-    throw new Error(`❌ Test 11 Failed: terminal batch counts were ${finalSecondBatch}, ${finalTwoSecondsBatch}, ${noWorkAfterTarget}.`);
+    throw new Error(`❌ Test 13 Failed: terminal batch counts were ${finalSecondBatch}, ${finalTwoSecondsBatch}, ${noWorkAfterTarget}.`);
   }
-  console.log('  ✅ Test 11 Passed: the worker advances second 5400 exactly once instead of spinning at zero steps.');
+  console.log('  ✅ Test 13 Passed: the worker advances second 5400 exactly once instead of spinning at zero steps.');
 
   console.log('\n🎉 All Test Suite Checks Passed Successfully!');
   process.exit(0);

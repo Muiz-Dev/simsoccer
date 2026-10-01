@@ -114,6 +114,10 @@ npm run migrate
 # or: npm run db:migrate
 ```
 
+The runtime supervisor applies pending migrations before starting the API, simulation worker, and coordinator. For a remote production database, configure `ALLOW_PRODUCTION_MIGRATIONS=true` in the backend environment. This flag authorizes versioned migrations only; it does not enable seed operations.
+
+To also apply pending migrations visibly before TypeScript compilation on the deployment machine, configure `MIGRATE_BEFORE_BUILD=true`. Then `npm run build` reports the migration step, compiler step, and successful completion. Leave this unset for local builds unless you intentionally want them to migrate their configured database. `npm run db:generate` creates migration files; `npm run db:migrate` applies the existing SQL files and does not create new ones.
+
 ### Admin PIN Bootstrap
 Admin credentials are not created automatically. Configure a private `ADMIN_PIN_PEPPER` of at least 32 characters and the browser origins allowed to use the admin session:
 
@@ -135,6 +139,9 @@ npx tsx src/football/seed.ts 2025-2026
 # Seed 2026-2027 season
 npx tsx src/football/seed.ts 2026-2027
 ```
+
+### Reset the Simulation World
+To clear world and play-money activity while keeping user accounts and admin access, first back up the database and stop the PM2 runtime. Set `ALLOW_WORLD_RESET=true` in the backend environment, then run `npm run world:reset` from an interactive terminal and type `RESET SIMSOCCER WORLD`. The command clears simulation/settlement queues, truncates league/season/match/market/bet data, resets virtual wallets to 10,000, and seeds a fresh Season 1. It does not delete admin credentials, sessions, or audit records. Remove `ALLOW_WORLD_RESET` after completion, then restart the runtime.
 
 ---
 
