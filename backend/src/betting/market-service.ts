@@ -12,7 +12,7 @@ import {
   teams,
   worldRuntime,
 } from '../db/schema/index';
-import { getRoundCutoffAt } from './round-market-policy';
+import { getRoundCutoffAt, isRoundMarketOpen, selectDefaultBettingRound } from './round-market-policy';
 
 const MAX_BOOKING_SELECTIONS = 20;
 
@@ -28,11 +28,6 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
     return { round: 1, serverNow: new Date(), cutoffAt: null, fixtures: [] };
   }
 
-  const round = requestedRound ?? runtime.currentRound;
-  if (!Number.isInteger(round) || round < runtime.currentRound || round > runtime.currentRound + 1) {
-    throw new Error('Only the current or next world round is available.');
-  }
-
   const activeCompetitions = await db.select({
     leagueId: leagues.id,
     leagueName: leagues.name,
@@ -44,10 +39,43 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
     .where(and(eq(seasons.status, 'ACTIVE'), eq(leagues.active, true)))
     .orderBy(asc(leagues.name));
 
+  const activeSeasonIds = activeCompetitions.map((competition) => competition.seasonId);
+  const currentRoundFixtures = activeSeasonIds.length === 0
+    ? []
+    : await db.select({ scheduledAt: fixtures.scheduledAt, status: fixtures.status })
+      .from(fixtures)
+      .where(and(inArray(fixtures.seasonId, activeSeasonIds), eq(fixtures.round, runtime.currentRound)));
+  const nextRoundFixtures = runtime.currentRound >= runtime.totalRounds || activeSeasonIds.length === 0
+    ? []
+    : await db.select({ scheduledAt: fixtures.scheduledAt, status: fixtures.status })
+      .from(fixtures)
+      .where(and(inArray(fixtures.seasonId, activeSeasonIds), eq(fixtures.round, runtime.currentRound + 1)));
+  const [clock] = await db.select({ now: sql<Date>`now()` })
+    .from(worldRuntime)
+    .where(eq(worldRuntime.id, 'singleton'))
+    .limit(1);
+  const serverNow = clock?.now ?? new Date();
+  const currentRoundKickoffs = currentRoundFixtures
+    .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
+    .map((fixture) => fixture.scheduledAt);
+  const nextRoundKickoffs = nextRoundFixtures
+    .filter((fixture) => fixture.status === 'SCHEDULED')
+    .map((fixture) => fixture.scheduledAt);
+  const currentRoundOpen = isRoundMarketOpen(currentRoundKickoffs, serverNow);
+  const defaultRound = selectDefaultBettingRound(
+    runtime.currentRound,
+    currentRoundKickoffs,
+    nextRoundKickoffs,
+    serverNow,
+  );
+  const round = requestedRound ?? defaultRound;
+  if (!Number.isInteger(round) || round < runtime.currentRound || round > runtime.currentRound + 1) {
+    throw new Error('Only the current or next world round is available.');
+  }
+
   const competitions = leagueId
     ? activeCompetitions.filter((competition) => competition.leagueId === leagueId)
     : activeCompetitions;
-  const activeSeasonIds = activeCompetitions.map((competition) => competition.seasonId);
   const seasonIds = competitions.map((competition) => competition.seasonId);
   const fixtureRows = seasonIds.length === 0
     ? []
@@ -61,9 +89,15 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
       .where(and(inArray(fixtures.seasonId, activeSeasonIds), eq(fixtures.round, round)));
 
   const fixtureIds = fixtureRows.map((fixture) => fixture.id);
-  const marketRows = fixtureIds.length === 0
+  const persistedMarkets = fixtureIds.length === 0
     ? []
     : await db.select().from(markets).where(inArray(markets.fixtureId, fixtureIds)).orderBy(asc(markets.marketType));
+  const newestMarketByFixtureScope = new Map<string, typeof persistedMarkets[number]>();
+  for (const market of [...persistedMarkets].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())) {
+    const key = `${market.fixtureId}:${market.marketType}:${market.marketScope}`;
+    if (!newestMarketByFixtureScope.has(key)) newestMarketByFixtureScope.set(key, market);
+  }
+  const marketRows = [...newestMarketByFixtureScope.values()];
   const marketIds = marketRows.map((market) => market.id);
   const outcomeRows = marketIds.length === 0
     ? []
@@ -81,11 +115,6 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
     marketsByFixture.set(market.fixtureId, fixtureMarkets);
   }
 
-  const [clock] = await db.select({ now: sql<Date>`now()` })
-    .from(worldRuntime)
-    .where(eq(worldRuntime.id, 'singleton'))
-    .limit(1);
-  const serverNow = clock?.now ?? new Date();
   const cutoffAt = getRoundCutoffAt(
     roundFixtures
       .filter((fixture) => fixture.status !== 'CANCELLED' && fixture.status !== 'POSTPONED')
@@ -95,6 +124,9 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
 
   return {
     round,
+    worldRound: runtime.currentRound,
+    currentRoundOpen,
+    defaultRound,
     serverNow,
     cutoffAt,
     fixtures: fixtureRows.map((fixture) => {

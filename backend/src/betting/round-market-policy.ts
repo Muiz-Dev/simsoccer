@@ -15,3 +15,14 @@ export function isRoundMarketOpen(kickoffs: Date[], now: Date): boolean {
   const cutoffAt = getRoundCutoffAt(kickoffs);
   return cutoffAt !== null && now < cutoffAt;
 }
+
+export function selectDefaultBettingRound(
+  currentRound: number,
+  currentRoundKickoffs: Date[],
+  nextRoundKickoffs: Date[],
+  now: Date,
+): number {
+  if (isRoundMarketOpen(currentRoundKickoffs, now)) return currentRound;
+  if (isRoundMarketOpen(nextRoundKickoffs, now)) return currentRound + 1;
+  return currentRound;
+}

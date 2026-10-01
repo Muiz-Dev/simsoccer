@@ -6,7 +6,7 @@ import { eq, and, or, sql, asc, desc, inArray } from 'drizzle-orm';
 import { env } from '../config/env';
 import { simulationQueue, settlementQueue } from '../workers/queues';
 import { buildSimulationInput } from './match-input';
-import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
+import { calculateAllPreMatchMarkets, calculateExpectedGoals } from '../markets/probability-engine';
 import { getRoundCutoffAt } from '../betting/round-market-policy';
 import { generateDoubleRoundRobin } from './fixture-generator';
 
@@ -603,6 +603,32 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
       .where(and(inArray(markets.fixtureId, roundFixtureIds), eq(markets.status, 'OPEN')));
   }
 
+  const roundHasStarted = currentRoundFixtures.some((fixture) =>
+    fixture.status === 'LIVE'
+    || fixture.status === 'HALFTIME'
+    || fixture.status === 'SECOND_HALF'
+    || fixture.status === 'FINISHED'
+    || (fixture.status === 'SCHEDULED' && fixture.scheduledAt <= now),
+  );
+  if (roundHasStarted && worldRound < totalRounds) {
+    const upcomingFixtures = allFixtures.filter((fixture) =>
+      fixture.round === worldRound + 1 && fixture.status === 'SCHEDULED',
+    );
+    const upcomingFixtureIds = upcomingFixtures.map((fixture) => fixture.id);
+    const existingUpcomingMarkets = upcomingFixtureIds.length === 0
+      ? []
+      : await db.select({ fixtureId: markets.fixtureId })
+        .from(markets)
+        .where(inArray(markets.fixtureId, upcomingFixtureIds));
+    const preparedFixtureIds = new Set(existingUpcomingMarkets.map((market) => market.fixtureId));
+
+    for (const fixture of upcomingFixtures) {
+      if (!preparedFixtureIds.has(fixture.id)) {
+        await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+      }
+    }
+  }
+
   for (const fixture of currentRoundFixtures) {
     if (fixture.status === 'SCHEDULED') {
       if (fixture.scheduledAt <= now) {
@@ -627,8 +653,16 @@ async function prepareFixtureMarkets(fixtureId: string, seasonId: string, homeTe
   let lambdaAway = 1.05;
 
   if (homeRating && awayRating) {
-    lambdaHome = 1.20 * parseFloat(homeRating.attackStrength) * (1 / Math.max(0.5, parseFloat(awayRating.defenseStrength))) * parseFloat(homeRating.homeAdvantage);
-    lambdaAway = 1.05 * parseFloat(awayRating.attackStrength) * (1 / Math.max(0.5, parseFloat(awayRating.defenseStrength)));
+    const expectedGoals = calculateExpectedGoals({
+      attackStrength: Number(homeRating.attackStrength),
+      defenseStrength: Number(homeRating.defenseStrength),
+      homeAdvantage: Number(homeRating.homeAdvantage),
+    }, {
+      attackStrength: Number(awayRating.attackStrength),
+      defenseStrength: Number(awayRating.defenseStrength),
+    });
+    lambdaHome = expectedGoals.lambdaHome;
+    lambdaAway = expectedGoals.lambdaAway;
   }
 
   const calculated = calculateAllPreMatchMarkets(lambdaHome, lambdaAway);

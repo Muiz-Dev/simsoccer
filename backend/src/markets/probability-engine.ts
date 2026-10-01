@@ -12,6 +12,22 @@ export interface CalculatedMarket {
   outcomes: MarketOddsItem[];
 }
 
+export interface TeamGoalRating {
+  attackStrength: number;
+  defenseStrength: number;
+  homeAdvantage?: number;
+}
+
+export function calculateExpectedGoals(home: TeamGoalRating, away: TeamGoalRating) {
+  return {
+    lambdaHome: 1.20 * home.attackStrength
+      * (1 / Math.max(0.5, away.defenseStrength))
+      * (home.homeAdvantage ?? 1.10),
+    lambdaAway: 1.05 * away.attackStrength
+      * (1 / Math.max(0.5, home.defenseStrength)),
+  };
+}
+
 /**
  * Applies bookmaker overround margin (e.g., 5-8%) and converts raw probabilities to decimal odds.
  */

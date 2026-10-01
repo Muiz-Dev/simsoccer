@@ -1,8 +1,8 @@
 import { getTargetVirtualSecond, getVirtualStepsToAdvance, MatchEngine } from '../simulation/match-engine';
 import { MatchSimulationInput } from '../simulation/types';
-import { calculateAllPreMatchMarkets } from '../markets/probability-engine';
+import { calculateAllPreMatchMarkets, calculateExpectedGoals } from '../markets/probability-engine';
 import { calculateStraightMultiple } from '../betting/multiple';
-import { isRoundMarketOpen } from '../betting/round-market-policy';
+import { isRoundMarketOpen, selectDefaultBettingRound } from '../betting/round-market-policy';
 import { checkDependenciesHealth, deriveWorldRound, deriveWorldRoundAfterBreak, getRoundKickoffStartAt, getWorldStatusInfo } from '../football/coordinator';
 import { parseVirtualSeasonName, resolveCompetitionDataset } from '../football/seed';
 import { env } from '../config/env';
@@ -139,6 +139,22 @@ async function runTests() {
   if (!isRoundMarketOpen([firstKickoff, laterKickoff], new Date(cutoff.getTime() - 1))
     || isRoundMarketOpen([firstKickoff, laterKickoff], cutoff)) {
     throw new Error('❌ Test 4 Failed: Round market cutoff must close exactly 60 seconds before the earliest kickoff.');
+  }
+  const nextBettingRound = selectDefaultBettingRound(
+    5,
+    [firstKickoff],
+    [new Date('2026-10-02T08:05:00.000Z')],
+    new Date('2026-10-01T08:04:00.000Z'),
+  );
+  if (nextBettingRound !== 6) {
+    throw new Error(`❌ Test 4 Failed: expected the next open betting round 6, got ${nextBettingRound}.`);
+  }
+  const expectedGoals = calculateExpectedGoals(
+    { attackStrength: 1.2, defenseStrength: 1.5, homeAdvantage: 1.1 },
+    { attackStrength: 1, defenseStrength: 4 },
+  );
+  if (Math.abs(expectedGoals.lambdaAway - 0.7) > 0.0001) {
+    throw new Error('❌ Test 4 Failed: away expected goals must use the home team defence rating.');
   }
   console.log('  ✅ Test 4 Passed: Market pricing models, overround margins, and odds generated successfully.\n');
 

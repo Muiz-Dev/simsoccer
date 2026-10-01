@@ -37,6 +37,9 @@ type Fixture = {
 };
 type MarketResponse = {
   round: number;
+  worldRound: number;
+  currentRoundOpen: boolean;
+  defaultRound: number;
   serverNow: string;
   cutoffAt: string | null;
   fixtures: Fixture[];
@@ -215,8 +218,10 @@ export default function BettingDesk() {
         if (stopped) return;
         const marketData = await readApiResponse<MarketResponse>(response, "Market service returned an unreadable response.");
         setData(marketData);
-        setWorldRound((current) => current ?? marketData.round);
-        setRound((current) => current ?? marketData.round);
+        setWorldRound(marketData.worldRound);
+        setRound((current) => current === null || (current === marketData.worldRound && !marketData.currentRoundOpen)
+          ? marketData.defaultRound
+          : current);
         setSelectedLeagueId((current) => current || marketData.fixtures[0]?.league?.id || "");
         setError("");
       } catch (cause) {
@@ -528,7 +533,7 @@ export default function BettingDesk() {
         <div className={styles.roundControls} aria-label="Choose round">
           <button
             type="button"
-            disabled={worldRound === null || round === null || round <= worldRound}
+            disabled={!data?.currentRoundOpen || worldRound === null || round === null || round <= worldRound}
             onClick={() => changeRound(-1)}
           >
             Previous
