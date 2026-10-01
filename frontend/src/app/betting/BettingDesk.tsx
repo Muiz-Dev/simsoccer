@@ -558,6 +558,7 @@ export default function BettingDesk() {
       <div className={styles.titleBar}>
         <div>
           <h1>Football</h1>
+          <p className={styles.titleRound}>Round {round ?? "—"}</p>
         </div>
       </div>
 
@@ -585,7 +586,6 @@ export default function BettingDesk() {
           <div className={styles.marketHeading}>
             <div>
               <span className={styles.roundLabel}>{selectedFixtures[0]?.league?.name ?? "World fixtures"}</span>
-                  Book
             </div>
             <span className={styles.cutoffLabel}>
               {cutoffSeconds !== null

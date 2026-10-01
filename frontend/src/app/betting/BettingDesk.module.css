@@ -95,6 +95,13 @@
   text-align: center;
 }
 
+.titleRound {
+  margin: 6px 0 0;
+  color: var(--desk-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 .desk {
   display: grid;
   grid-template-columns: 176px minmax(0, 1fr) 300px;

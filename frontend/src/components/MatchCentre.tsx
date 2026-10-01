@@ -188,38 +188,30 @@ function StandingsSkeleton() {
   );
 }
 
-function FixturesByRound({ fixtures, serverNow, loading, timeZone }: { fixtures: Fixture[]; serverNow: number; loading: boolean; timeZone: string }) {
-  const rounds = [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => a - b);
+function FixtureList({ fixtures, serverNow, loading, timeZone }: { fixtures: Fixture[]; serverNow: number; loading: boolean; timeZone: string }) {
   if (loading) return <MatchSkeletonList />;
-  if (rounds.length === 0) return <p className={styles.empty}>No fixtures are scheduled.</p>;
+  if (fixtures.length === 0) return <p className={styles.empty}>No fixtures are scheduled.</p>;
 
-  return rounds.map((round) => (
-    <section className={styles.roundBlock} key={round}>
-      <h2 className={styles.roundLabel}>Round {round}</h2>
-      <div className={styles.matchList}>
-        {fixtures.filter((fixture) => fixture.round === round).map((fixture) => (
-          <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
-        ))}
-      </div>
-    </section>
-  ));
+  return (
+    <div className={styles.matchList}>
+      {fixtures.map((fixture) => (
+        <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
+      ))}
+    </div>
+  );
 }
 
-function ResultsByRound({ fixtures, serverNow, loading, timeZone }: { fixtures: Fixture[]; serverNow: number; loading: boolean; timeZone: string }) {
-  const rounds = [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => b - a);
+function ResultsList({ fixtures, serverNow, loading, timeZone }: { fixtures: Fixture[]; serverNow: number; loading: boolean; timeZone: string }) {
   if (loading) return <MatchSkeletonList />;
-  if (rounds.length === 0) return <p className={styles.empty}>No completed results yet.</p>;
+  if (fixtures.length === 0) return <p className={styles.empty}>No completed results yet.</p>;
 
-  return rounds.map((round) => (
-    <section className={styles.roundBlock} key={round}>
-      <h2 className={styles.roundLabel}>Round {round}</h2>
-      <div className={styles.matchList}>
-        {fixtures.filter((fixture) => fixture.round === round).map((fixture) => (
-          <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
-        ))}
-      </div>
-    </section>
-  ));
+  return (
+    <div className={styles.matchList}>
+      {fixtures.map((fixture) => (
+        <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
+      ))}
+    </div>
+  );
 }
 
 export default function MatchCentre({ view }: { view: MatchCentreView }) {
@@ -241,14 +233,20 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
   }, { scope: pageRef });
 
   const liveFixtures = (selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "LIVE");
-  const upcomingFixtures = [
-    ...(selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED"),
-    ...(selectedLeague?.nextRoundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED"),
-  ].sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
-  const completedFixtures = [
-    ...(selectedLeague?.previousRoundFixtures ?? []).filter((fixture) => fixture.status === "FINISHED"),
-    ...(selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "FINISHED"),
-  ].sort((a, b) => b.round - a.round || Date.parse(b.scheduledAt) - Date.parse(a.scheduledAt));
+  const currentRoundUpcoming = (selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED");
+  const nextRoundUpcoming = (selectedLeague?.nextRoundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED");
+  const upcomingFixtures = (currentRoundUpcoming.length ? currentRoundUpcoming : nextRoundUpcoming)
+    .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
+  const fixturesRound = upcomingFixtures[0]?.round ?? selectedLeague?.season?.currentRound ?? 0;
+  const displayedRound = view === "fixtures" ? fixturesRound : selectedLeague?.season?.currentRound ?? 0;
+  const completedFixtures = (selectedLeague?.previousRoundFixtures ?? [])
+    .filter((fixture) => fixture.status === "FINISHED")
+    .sort((a, b) => Date.parse(b.scheduledAt) - Date.parse(a.scheduledAt));
+  const resultsRound = completedFixtures[0]?.round
+    ?? (selectedLeague?.season && selectedLeague.season.currentRound > 1 ? selectedLeague.season.currentRound - 1 : null);
+  const resultsFixtures = resultsRound === null
+    ? []
+    : completedFixtures.filter((fixture) => fixture.round === resultsRound);
 
   const viewTitle: Record<MatchCentreView, string> = {
     live: "Live scores",
@@ -287,9 +285,11 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
         <div>
           <h1>{viewTitle[view]}</h1>
         </div>
-        <div className={styles.roundSummary}>
-          <strong>Round {selectedLeague?.season?.currentRound ?? 0}</strong>
-        </div>
+        {view === "live" || view === "fixtures" ? (
+          <div className={styles.roundSummary}>
+            <strong>Round {displayedRound}</strong>
+          </div>
+        ) : null}
       </section>
 
       {overview?.leagues.length ? (
@@ -333,7 +333,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <h2>{selectedLeague?.league.name ?? "Upcoming fixtures"}</h2>
               <span className={styles.count}>Kickoff times in {timeZone}</span>
             </div>
-            <FixturesByRound fixtures={upcomingFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
+            <FixtureList fixtures={upcomingFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
             {!overview && error ? <p className={styles.empty}>Fixtures are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
@@ -343,8 +343,9 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
             <div className={styles.sectionHeading} data-enter>
               <h2>{selectedLeague?.league.name ?? "Completed matches"}</h2>
               <span className={styles.count}>Full-time results</span>
+              {resultsRound !== null ? <span className={styles.count}>Round {resultsRound}</span> : null}
             </div>
-            <ResultsByRound fixtures={completedFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
+            <ResultsList fixtures={resultsFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
             {!overview && error ? <p className={styles.empty}>Results are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
