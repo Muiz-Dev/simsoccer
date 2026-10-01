@@ -256,13 +256,12 @@ async function runTests() {
   const recoveredKickoff = getRoundKickoffStartAt(
     previousRoundFinishedAt,
     new Date('2026-10-01T01:00:00.000Z'),
-    600,
-    120
+    600
   );
-  if (recoveredKickoff.toISOString() !== '2026-10-01T01:02:00.000Z') {
-    throw new Error(`❌ Test 11 Failed: recovered kickoff was ${recoveredKickoff.toISOString()}, expected a two-minute market window.`);
+  if (recoveredKickoff.toISOString() !== '2026-10-01T01:00:00.000Z') {
+    throw new Error(`❌ Test 11 Failed: recovered kickoff was ${recoveredKickoff.toISOString()}, expected it to start now without an extra buffer delay.`);
   }
-  console.log('  ✅ Test 11 Passed: the world waits through the break and safely reschedules stale kickoffs.');
+  console.log('  ✅ Test 11 Passed: the world waits through the break and safely reschedules stale kickoffs without extending the break.');
 
   // Test 12: Ninety real minutes map to one full simulated match.
   console.log('▶ Test 12: Real-Time Match Duration...');

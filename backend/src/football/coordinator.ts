@@ -94,10 +94,9 @@ export function deriveWorldRoundAfterBreak(
   return now.getTime() < nextRoundAt ? candidateRound - 1 : candidateRound;
 }
 
-export function getRoundKickoffStartAt(latestFinish: Date, now: Date, roundBreakSeconds: number, marketPreparationBufferSeconds: number): Date {
+export function getRoundKickoffStartAt(latestFinish: Date, now: Date, roundBreakSeconds: number): Date {
   const roundBreakEndsAt = latestFinish.getTime() + roundBreakSeconds * 1000;
-  const marketPreparationStartsAt = now.getTime() + marketPreparationBufferSeconds * 1000;
-  return new Date(Math.max(roundBreakEndsAt, marketPreparationStartsAt));
+  return new Date(Math.max(roundBreakEndsAt, now.getTime()));
 }
 
 let dedicatedLockSql: ReturnType<typeof postgres> | null = null;
@@ -473,12 +472,7 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
     }, null);
 
     if (previousRoundIsComplete && latestFinish) {
-      const nextRoundAt = getRoundKickoffStartAt(
-        latestFinish,
-        now,
-        env.ROUND_BREAK_SECONDS,
-        env.MARKET_PREPARATION_BUFFER_SECONDS
-      );
+      const nextRoundAt = getRoundKickoffStartAt(latestFinish, now, env.ROUND_BREAK_SECONDS);
       const nextRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound);
       let staleKickoffsCorrected = 0;
 
@@ -565,6 +559,17 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
         currentStatus = 'RECOVERING';
         await updateRuntimeHeartbeat('RECOVERING', null, 0, totalRounds, 'Created the next numbered world season.');
         return;
+      }
+    } else if (worldRound < totalRounds && latestFinish) {
+      const marketPreparationStartsAt = nextRoundAt.getTime() - env.MARKET_PREPARATION_BUFFER_SECONDS * 1000;
+      if (now.getTime() >= marketPreparationStartsAt) {
+        const nextRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound + 1 && fixture.status === 'SCHEDULED');
+        for (const fixture of nextRoundFixtures) {
+          const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixture.id));
+          if (existingMarkets.length === 0) {
+            await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+          }
+        }
       }
     }
   }
