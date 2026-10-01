@@ -249,11 +249,14 @@
 }
 
 .tableWrap {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
   border-top: 1px solid var(--rule);
 }
 
 .table {
   width: 100%;
+  min-width: 520px;
   border-collapse: collapse;
   text-align: right;
   font-size: 12px;
@@ -367,8 +370,48 @@
 
   .table th,
   .table td {
-    padding-right: 5px;
-    padding-left: 5px;
+    padding-right: 3px;
+    padding-left: 3px;
+  }
+
+  .table {
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 10px;
+  }
+
+  .table th:nth-child(1),
+  .table td:nth-child(1) {
+    width: 23px;
+  }
+
+  .table th:nth-child(2),
+  .table td:nth-child(2) {
+    width: 36%;
+  }
+
+  .table th:nth-child(3),
+  .table td:nth-child(3),
+  .table th:nth-child(4),
+  .table td:nth-child(4),
+  .table th:nth-child(5),
+  .table td:nth-child(5),
+  .table th:nth-child(6),
+  .table td:nth-child(6) {
+    width: 24px;
+  }
+
+  .table th:nth-child(7),
+  .table td:nth-child(7),
+  .table th:nth-child(8),
+  .table td:nth-child(8) {
+    width: 34px;
+  }
+
+  .table .clubName {
+    max-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 
@@ -385,17 +428,12 @@
     font-size: 14px;
   }
 
-  .hideMobile {
-    display: none;
-  }
-
   .fixtureState {
     font-size: 10px;
   }
 }
 
 @media (max-width: 340px) {
-  .hideSmall,
   .tableUpdated {
     display: none;
   }

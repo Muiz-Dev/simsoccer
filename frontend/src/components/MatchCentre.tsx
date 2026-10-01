@@ -18,6 +18,7 @@ import LiveTvIcon from "@mui/icons-material/LiveTv";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
+import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
 import type { Fixture, Standing } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
 import styles from "./MatchCentre.module.css";
@@ -33,17 +34,7 @@ const navigation: NavItem[] = [
   { href: "/table", label: "Table", icon: FormatListNumberedIcon },
 ];
 
-function utcKickoff(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }).format(new Date(value));
-}
-
-function MatchRow({ fixture, serverNow }: { fixture: Fixture; serverNow: number }) {
+function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNow: number; timeZone: string }) {
   const isLive = fixture.status === "LIVE";
   const isFinished = fixture.status === "FINISHED";
   const startAt = fixture.startedAt ? Date.parse(fixture.startedAt) : Date.parse(fixture.scheduledAt);
@@ -78,7 +69,7 @@ function MatchRow({ fixture, serverNow }: { fixture: Fixture; serverNow: number 
             {clockDelayed ? <span className={styles.lag}>+{Math.ceil(clockDelaySeconds / 60)}m</span> : null}
           </>
         ) : (
-          <span className={styles.kickoff}>{utcKickoff(fixture.scheduledAt)} UTC</span>
+          <span className={styles.kickoff}>{formatLocalDateTime(fixture.scheduledAt, timeZone)}</span>
         )}
       </div>
       <div className={styles.matchLine} aria-label={`${homeName} ${scheduled ? "versus" : `${fixture.homeScore} to ${fixture.awayScore}`} ${awayName}`}>
@@ -197,7 +188,7 @@ function StandingsSkeleton() {
   );
 }
 
-function FixturesByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[]; serverNow: number; loading: boolean }) {
+function FixturesByRound({ fixtures, serverNow, loading, timeZone }: { fixtures: Fixture[]; serverNow: number; loading: boolean; timeZone: string }) {
   const rounds = [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => a - b);
   if (loading) return <MatchSkeletonList />;
   if (rounds.length === 0) return <p className={styles.empty}>No fixtures are scheduled.</p>;
@@ -207,14 +198,14 @@ function FixturesByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[]
       <h2 className={styles.roundLabel}>Round {round}</h2>
       <div className={styles.matchList}>
         {fixtures.filter((fixture) => fixture.round === round).map((fixture) => (
-          <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} />
+          <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
         ))}
       </div>
     </section>
   ));
 }
 
-function ResultsByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[]; serverNow: number; loading: boolean }) {
+function ResultsByRound({ fixtures, serverNow, loading, timeZone }: { fixtures: Fixture[]; serverNow: number; loading: boolean; timeZone: string }) {
   const rounds = [...new Set(fixtures.map((fixture) => fixture.round))].sort((a, b) => b - a);
   if (loading) return <MatchSkeletonList />;
   if (rounds.length === 0) return <p className={styles.empty}>No completed results yet.</p>;
@@ -224,7 +215,7 @@ function ResultsByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[];
       <h2 className={styles.roundLabel}>Round {round}</h2>
       <div className={styles.matchList}>
         {fixtures.filter((fixture) => fixture.round === round).map((fixture) => (
-          <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} />
+          <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
         ))}
       </div>
     </section>
@@ -233,6 +224,7 @@ function ResultsByRound({ fixtures, serverNow, loading }: { fixtures: Fixture[];
 
 export default function MatchCentre({ view }: { view: MatchCentreView }) {
   const pathname = usePathname();
+  const timeZone = useBrowserTimeZone();
   const pageRef = useRef<HTMLElement>(null);
   const animated = useRef(false);
   const { overview, selectedLeague, selectedLeagueId, setSelectedLeagueId, refresh, error, serverNow } = useWorldData();
@@ -327,7 +319,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <span className={styles.count}>{liveFixtures.length ? `${liveFixtures.length} live` : "No live matches"}</span>
             </div>
             <div className={styles.matchList}>
-              {liveFixtures.map((fixture) => <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} />)}
+              {liveFixtures.map((fixture) => <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />)}
               {overview && liveFixtures.length === 0 ? (
                 <p className={styles.empty}>No live fixtures right now. <Link href="/fixtures">View fixtures</Link></p>
               ) : null}
@@ -341,9 +333,9 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           <>
             <div className={styles.sectionHeading} data-enter>
               <h2>{selectedLeague?.league.name ?? "Upcoming fixtures"}</h2>
-              <span className={styles.count}>Kickoff times in UTC</span>
+              <span className={styles.count}>Kickoff times in {timeZone}</span>
             </div>
-            <FixturesByRound fixtures={upcomingFixtures} serverNow={serverNow} loading={!overview && !error} />
+            <FixturesByRound fixtures={upcomingFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
             {!overview && error ? <p className={styles.empty}>Fixtures are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
@@ -354,7 +346,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <h2>{selectedLeague?.league.name ?? "Completed matches"}</h2>
               <span className={styles.count}>Full-time results</span>
             </div>
-            <ResultsByRound fixtures={completedFixtures} serverNow={serverNow} loading={!overview && !error} />
+            <ResultsByRound fixtures={completedFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
             {!overview && error ? <p className={styles.empty}>Results are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
@@ -373,7 +365,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
       </section>
 
       <footer className={styles.footer}>
-        <span>All kickoff times UTC</span>
         <span>Clock synced to match server</span>
       </footer>
     </main>

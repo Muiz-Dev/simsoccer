@@ -201,15 +201,23 @@
 }
 
 .cutoffLabel {
+  display: grid;
+  gap: 2px;
   color: var(--desk-muted);
   font-size: 11px;
   text-align: right;
 }
 
+.cutoffLabel small {
+  color: #89938c;
+  font-size: 10px;
+}
+
 .marketKey,
 .fixtureLine {
   display: grid;
-  grid-template-columns: minmax(155px, 1fr) repeat(8, minmax(40px, 1fr)) 30px;
+  grid-template-columns: minmax(185px, 1.2fr) repeat(8, minmax(40px, 1fr));
+  grid-template-columns: minmax(185px, 1.2fr) repeat(8, minmax(40px, 1fr)) 30px;
   align-items: center;
   gap: 4px;
   min-width: 700px;
@@ -242,11 +250,10 @@
 }
 
 .fixtureInfo {
-  position: relative;
   display: grid;
-  gap: 5px;
+  justify-items: start;
+  gap: 3px;
   min-width: 0;
-  padding-right: 24px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
@@ -276,22 +283,26 @@
   font-size: 10px;
 }
 
-.statsButton {
-  position: absolute;
-  top: 0;
-  right: 0;
+.playButton {
   display: grid;
-  width: 23px;
-  height: 23px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
   place-items: center;
+  padding: 0;
   border: 1px solid var(--desk-rule);
-  background: white;
-  color: var(--desk-pitch-deep);
+  background: transparent;
+  color: var(--desk-pitch);
   cursor: pointer;
 }
 
-.statsButton svg {
-  font-size: 15px;
+.playButton:hover {
+  border-color: var(--desk-pitch);
+  background: #edf4ef;
+}
+
+.playButton svg {
+  font-size: 16px;
 }
 
 .oddsButton {
@@ -338,6 +349,10 @@
   background: transparent;
   color: var(--desk-pitch-deep);
   cursor: pointer;
+}
+
+.moreButton:hover {
+  background: #edf4ef;
 }
 
 .moreButton svg {

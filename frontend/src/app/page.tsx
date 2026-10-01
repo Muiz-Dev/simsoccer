@@ -12,6 +12,7 @@ import Tooltip from "@mui/material/Tooltip";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
+import { formatLocalTime, useBrowserTimeZone } from "@/lib/time-zone";
 import styles from "./page.module.css";
 
 gsap.registerPlugin(useGSAP);
@@ -58,14 +59,6 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "";
 const REFRESH_INTERVAL_MS = 15_000;
 
-function kickoffTime(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }).format(new Date(value));
-}
-
 function matchMinute(second: number) {
   return Math.min(90, Math.floor(second / 60));
 }
@@ -79,7 +72,7 @@ function LiveMark() {
   );
 }
 
-function FixtureRow({ fixture }: { fixture: Fixture }) {
+function FixtureRow({ fixture, timeZone }: { fixture: Fixture; timeZone: string }) {
   const isLive = fixture.status === "LIVE";
   const isFinished = fixture.status === "FINISHED";
 
@@ -94,7 +87,7 @@ function FixtureRow({ fixture }: { fixture: Fixture }) {
         ) : isFinished ? (
           <span className={styles.finishedLabel}>Full time</span>
         ) : (
-          <span className={styles.kickoff}>{kickoffTime(fixture.scheduledAt)} UTC</span>
+          <span className={styles.kickoff}>{formatLocalTime(fixture.scheduledAt, timeZone)}</span>
         )}
       </div>
       <div className={styles.fixtureTeams}>
@@ -115,6 +108,7 @@ function FixtureRow({ fixture }: { fixture: Fixture }) {
 }
 
 export default function Home() {
+  const timeZone = useBrowserTimeZone();
   const pageRef = useRef<HTMLElement>(null);
   const hasEntered = useRef(false);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -255,7 +249,6 @@ export default function Home() {
 
       <section className={styles.masthead} data-reveal>
         <div>
-          <p className={styles.kicker}>Simulated football · live world</p>
           <h1>Match centre</h1>
         </div>
         <div className={styles.worldSummary}>
@@ -303,7 +296,7 @@ export default function Home() {
 
           <div className={styles.fixtureList}>
             {selectedLeague?.roundFixtures.length ? selectedLeague.roundFixtures.map((fixture) => (
-              <FixtureRow key={fixture.id} fixture={fixture} />
+              <FixtureRow key={fixture.id} fixture={fixture} timeZone={timeZone} />
             )) : (
               <p className={styles.emptyState}>
                 {overview ? "No fixtures are scheduled for this round." : "Connecting to the match centre…"}
@@ -324,7 +317,7 @@ export default function Home() {
             </div>
             <div className={styles.fixtureList}>
               {selectedLeague?.nextRoundFixtures.length ? selectedLeague.nextRoundFixtures.map((fixture) => (
-                <FixtureRow key={fixture.id} fixture={fixture} />
+                <FixtureRow key={fixture.id} fixture={fixture} timeZone={timeZone} />
               )) : <p className={styles.emptyState}>The next round will appear here when scheduled.</p>}
             </div>
           </section>
@@ -339,17 +332,17 @@ export default function Home() {
             <span className={styles.tableUpdated}>After completed matches</span>
           </div>
 
-          <div className={styles.tableWrap}>
+          <div className={styles.tableWrap} role="region" aria-label="League standings" tabIndex={0}>
             <table className={styles.table}>
               <thead>
                 <tr>
                   <th scope="col">#</th>
                   <th scope="col" className={styles.clubHeading}>Club</th>
                   <th scope="col">P</th>
-                  <th scope="col" className={styles.hideMobile}>W</th>
-                  <th scope="col" className={styles.hideMobile}>D</th>
-                  <th scope="col" className={styles.hideMobile}>L</th>
-                  <th scope="col" className={styles.hideSmall}>GD</th>
+                  <th scope="col">W</th>
+                  <th scope="col">D</th>
+                  <th scope="col">L</th>
+                  <th scope="col">GD</th>
                   <th scope="col" className={styles.pointsHeading}>Pts</th>
                 </tr>
               </thead>
@@ -359,10 +352,10 @@ export default function Home() {
                     <td>{row.position}</td>
                     <th scope="row" className={styles.clubName}>{row.teamName}</th>
                     <td>{row.played}</td>
-                    <td className={styles.hideMobile}>{row.won}</td>
-                    <td className={styles.hideMobile}>{row.drawn}</td>
-                    <td className={styles.hideMobile}>{row.lost}</td>
-                    <td className={styles.hideSmall}>{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td>
+                    <td>{row.won}</td>
+                    <td>{row.drawn}</td>
+                    <td>{row.lost}</td>
+                    <td>{row.goalDifference > 0 ? `+${row.goalDifference}` : row.goalDifference}</td>
                     <td className={styles.points}>{row.points}</td>
                   </tr>
                 ))}
@@ -376,7 +369,7 @@ export default function Home() {
       </div>
 
       <footer className={styles.footer}>
-        <span>Match times shown in UTC</span>
+        <span>Match times shown in {timeZone}</span>
         <span>Refreshes every 15 seconds{liveFixtureKey ? " · live events connected" : ""}</span>
       </footer>
     </main>

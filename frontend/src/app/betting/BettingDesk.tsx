@@ -5,8 +5,9 @@ import Link from "next/link";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import QueryStatsIcon from "@mui/icons-material/QueryStats";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
+import { formatLocalDateTime, formatLocalTime, useBrowserTimeZone } from "@/lib/time-zone";
 import styles from "./BettingDesk.module.css";
 
 type Outcome = {
@@ -127,14 +128,13 @@ const QUICK_MARKETS: QuickMarket[] = [
   { marketType: "TOTAL_GOALS_2.5", outcomeCode: "UNDER_2.5", label: "U 2.5" },
 ];
 
-function timeLabel(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  }).format(new Date(value));
+function formatTimeRemaining(seconds: number) {
+  if (seconds <= 0) return "closed";
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
 }
 
 async function readApiResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
@@ -186,6 +186,7 @@ function selectionFromMarket(fixture: Fixture, market: Market, outcome: Outcome)
 }
 
 export default function BettingDesk() {
+  const timeZone = useBrowserTimeZone();
   const [data, setData] = useState<MarketResponse | null>(null);
   const [round, setRound] = useState<number | null>(null);
   const [selectedLeagueId, setSelectedLeagueId] = useState("");
@@ -277,7 +278,10 @@ export default function BettingDesk() {
   const roundedTotalOdds = resolvedSelections.length ? totalOdds.toFixed(2) : "0.00";
   const hasUnavailableLeg = resolvedSelections.some((selection) => selection.status !== "OPEN");
   const hasChangedPrice = resolvedSelections.some((selection) => selection.priceChanged);
-  const cutoff = data?.cutoffAt ? timeLabel(data.cutoffAt) : null;
+  const cutoff = data?.cutoffAt ? formatLocalDateTime(data.cutoffAt, timeZone) : null;
+  const cutoffSeconds = data?.cutoffAt && data.serverNow
+    ? Math.ceil((Date.parse(data.cutoffAt) - Date.parse(data.serverNow)) / 1000)
+    : null;
 
   function chooseOutcome(fixture: Fixture, market: Market, outcome: Outcome) {
     if (market.status !== "OPEN" || outcome.status !== "OPEN" || fixture.status !== "SCHEDULED") return;
@@ -499,7 +503,7 @@ export default function BettingDesk() {
           <div className={styles.formLines}>
             {fixtureStatistics.headToHead.meetings.map((meeting) => (
               <div className={styles.meetingLine} key={meeting.fixtureId}>
-                <time dateTime={meeting.scheduledAt}>{timeLabel(meeting.scheduledAt)}</time>
+                <time dateTime={meeting.scheduledAt}>{formatLocalDateTime(meeting.scheduledAt, timeZone)}</time>
                 <span>{meeting.homeTeam} <strong>{meeting.homeScore} - {meeting.awayScore}</strong> {meeting.awayTeam}</span>
               </div>
             ))}
@@ -562,11 +566,15 @@ export default function BettingDesk() {
         <section className={styles.marketColumn} aria-label="Fixture markets">
           <div className={styles.marketHeading}>
             <div>
-              <span className={styles.roundLabel}>{selectedFixtures[0]?.league?.name ?? "World fixtures"}</span>
+              <span className={styles.roundLabel}>{selectedFixtures[0]?.league?.name ?? "World fixtures"} · {timeZone.replaceAll("_", " ")}</span>
               <h2>Round {round ?? "—"}</h2>
             </div>
             <span className={styles.cutoffLabel}>
-              {cutoff ? `Closes ${cutoff} UTC` : "Markets unavailable"}
+              {cutoffSeconds !== null
+                ? cutoffSeconds > 0
+                  ? <>Closes in {formatTimeRemaining(cutoffSeconds)}<small>at {cutoff}</small></>
+                  : `Closed at ${cutoff}`
+                : "Markets unavailable"}
             </span>
           </div>
 
@@ -590,21 +598,24 @@ export default function BettingDesk() {
                 <article className={styles.fixture} key={fixture.id}>
                   <div className={styles.fixtureLine}>
                     <div className={styles.fixtureInfo}>
-                      <time dateTime={fixture.scheduledAt}>{timeLabel(fixture.scheduledAt)}</time>
+                      <time dateTime={fixture.scheduledAt}>{formatLocalTime(fixture.scheduledAt, timeZone)}</time>
                       <div className={styles.teams}>
+                        <button
+                          className={styles.playButton}
+                          type="button"
+                          aria-label={`Open markets for ${fixture.homeTeam?.name ?? "Home"} versus ${fixture.awayTeam?.name ?? "Away"}`}
+                          title="Open match markets"
+                          onClick={() => {
+                            setDialogMode("markets");
+                            setExpandedFixtureId(fixture.id);
+                          }}
+                        >
+                          <PlayArrowIcon aria-hidden="true" />
+                        </button>
                         <strong>{fixture.homeTeam?.shortName ?? fixture.homeTeam?.name ?? "Home"}</strong>
                         <span aria-hidden="true">v</span>
                         <strong>{fixture.awayTeam?.shortName ?? fixture.awayTeam?.name ?? "Away"}</strong>
                       </div>
-                      <button
-                        className={styles.statsButton}
-                        type="button"
-                        aria-label={`Statistics for ${fixture.homeTeam?.name ?? "Home"} versus ${fixture.awayTeam?.name ?? "Away"}`}
-                        title="Recent form and head-to-head"
-                        onClick={() => void openStatistics(fixture)}
-                      >
-                        <QueryStatsIcon aria-hidden="true" />
-                      </button>
                     </div>
                     {QUICK_MARKETS.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
                     <button
@@ -630,7 +641,6 @@ export default function BettingDesk() {
         <aside className={styles.slipPanel} data-mobile-open={mobileSlipOpen}>
           <div className={styles.slipTopline}>
             <div>
-              <span className={styles.slipEyebrow}>Selection desk</span>
               <h2>Bet slip <span>{selections.length}</span></h2>
             </div>
             <button
@@ -657,7 +667,7 @@ export default function BettingDesk() {
                       <article className={styles.selection} key={selection.fixtureId}>
                         <div className={styles.selectionTitle}>
                           <div>
-                            <span>{selection.leagueName} · {timeLabel(selection.scheduledAt)}</span>
+                            <span>{selection.leagueName} · {formatLocalDateTime(selection.scheduledAt, timeZone)}</span>
                             <strong>{selection.homeName} v {selection.awayName}</strong>
                           </div>
                           <button type="button" aria-label={`Remove ${selection.homeName} versus ${selection.awayName}`} onClick={() => removeSelection(selection.fixtureId)}>
@@ -674,7 +684,7 @@ export default function BettingDesk() {
                     ))}
                   </div>
                 ) : (
-                  <p className={styles.slipEmpty}>Choose an open price to start a selection.</p>
+                  <div className={styles.slipEmpty} aria-hidden="true" />
                 )}
 
                 <div className={styles.oddsSummary}>
@@ -722,7 +732,7 @@ export default function BettingDesk() {
           <section className={styles.marketDialog} role="dialog" aria-modal="true" aria-labelledby="more-markets-title">
             <header>
               <div>
-                <p>{timeLabel(expandedFixture.scheduledAt)} UTC</p>
+                <p>{formatLocalDateTime(expandedFixture.scheduledAt, timeZone)}</p>
                 <h2 id="more-markets-title">{expandedFixture.homeTeam?.name} v {expandedFixture.awayTeam?.name}</h2>
               </div>
               <button type="button" aria-label="Close markets" onClick={() => setExpandedFixtureId(null)}><CloseIcon /></button>
