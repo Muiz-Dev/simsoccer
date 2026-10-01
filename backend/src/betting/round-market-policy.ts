@@ -26,3 +26,16 @@ export function selectDefaultBettingRound(
   if (isRoundMarketOpen(nextRoundKickoffs, now)) return currentRound + 1;
   return currentRound;
 }
+
+export function selectVisibleBettingRound(
+  worldRound: number,
+  totalRounds: number,
+  currentRoundOpen: boolean,
+  currentCutoffAt: string | null,
+  serverNow: string,
+): number {
+  const cutoffPassed = currentCutoffAt !== null
+    && Date.parse(serverNow) >= Date.parse(currentCutoffAt);
+  if ((!currentRoundOpen || cutoffPassed) && worldRound < totalRounds) return worldRound + 1;
+  return worldRound;
+}

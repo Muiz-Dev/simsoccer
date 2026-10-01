@@ -218,16 +218,12 @@ export default function BettingDesk() {
         });
         if (stopped) return;
         const marketData = await readApiResponse<MarketResponse>(response, "Market service returned an unreadable response.");
-        const nextRoundAvailable = marketData.nextRoundAvailable ?? (
-          !marketData.currentRoundOpen
-          && marketData.defaultRound === marketData.worldRound
-          && marketData.worldRound < (marketData.totalRounds ?? 38)
-        );
-        const activeRound = marketData.currentRoundOpen
-          ? marketData.worldRound
-          : nextRoundAvailable
-            ? marketData.worldRound + 1
-            : marketData.defaultRound;
+        const cutoffPassed = marketData.cutoffAt !== null
+          && Date.parse(marketData.serverNow) >= Date.parse(marketData.cutoffAt);
+        const currentRoundClosed = !marketData.currentRoundOpen || cutoffPassed;
+        const activeRound = currentRoundClosed && marketData.worldRound < (marketData.totalRounds ?? 38)
+          ? marketData.worldRound + 1
+          : marketData.worldRound;
         if (marketData.round !== activeRound) {
           setRound(activeRound);
           return;

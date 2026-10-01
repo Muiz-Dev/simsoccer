@@ -627,6 +627,16 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
         await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
       }
     }
+
+    const upcomingCutoffAt = getRoundCutoffAt(upcomingFixtures.map((fixture) => fixture.scheduledAt));
+    if (upcomingCutoffAt && now < upcomingCutoffAt && upcomingFixtureIds.length > 0) {
+      await db.update(markets)
+        .set({ status: 'OPEN', updatedAt: now })
+        .where(and(
+          inArray(markets.fixtureId, upcomingFixtureIds),
+          inArray(markets.status, ['SUSPENDED', 'CLOSED']),
+        ));
+    }
   }
 
   for (const fixture of currentRoundFixtures) {

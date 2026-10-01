@@ -2,7 +2,7 @@ import { getTargetVirtualSecond, getVirtualStepsToAdvance, MatchEngine } from '.
 import { MatchSimulationInput } from '../simulation/types';
 import { calculateAllPreMatchMarkets, calculateExpectedGoals } from '../markets/probability-engine';
 import { calculateStraightMultiple } from '../betting/multiple';
-import { isRoundMarketOpen, selectDefaultBettingRound } from '../betting/round-market-policy';
+import { isRoundMarketOpen, selectDefaultBettingRound, selectVisibleBettingRound } from '../betting/round-market-policy';
 import { checkDependenciesHealth, deriveWorldRound, deriveWorldRoundAfterBreak, getRoundKickoffStartAt, getWorldStatusInfo } from '../football/coordinator';
 import { parseVirtualSeasonName, resolveCompetitionDataset } from '../football/seed';
 import { env } from '../config/env';
@@ -148,6 +148,16 @@ async function runTests() {
   );
   if (nextBettingRound !== 6) {
     throw new Error(`❌ Test 4 Failed: expected the next open betting round 6, got ${nextBettingRound}.`);
+  }
+  const displayedBettingRound = selectVisibleBettingRound(
+    5,
+    38,
+    false,
+    '2026-10-01T08:50:45.143Z',
+    '2026-10-01T10:15:08.047Z',
+  );
+  if (displayedBettingRound !== 6) {
+    throw new Error(`❌ Test 4 Failed: a closed Round 5 should display Round 6, got Round ${displayedBettingRound}.`);
   }
   const expectedGoals = calculateExpectedGoals(
     { attackStrength: 1.2, defenseStrength: 1.5, homeAdvantage: 1.1 },
