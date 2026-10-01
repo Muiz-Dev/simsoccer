@@ -1,21 +1,23 @@
 import crypto from 'node:crypto';
 import type { Request } from 'express';
 import { eq } from 'drizzle-orm';
+import { env } from '../config/env';
 import { db } from '../db/index';
 import { adminCredentials, adminSessions } from '../db/schema/index';
 
-const DEFAULT_ADMIN_PIN = '1234';
-const DEFAULT_ADMIN_PEPPER = 'sim-soccer-local-dev';
 const DEFAULT_SESSION_TTL_MS = 1000 * 60 * 60 * 8;
 const DEFAULT_IDLE_TTL_MS = 1000 * 60 * 30;
 
-export function hashAdminPin(pin: string): string {
-  const pepper = process.env.ADMIN_PIN_PEPPER || DEFAULT_ADMIN_PEPPER;
+export function hashAdminPin(pin: string, pepper = env.ADMIN_PIN_PEPPER): string {
+  if (!pepper || pepper.length < 32) {
+    throw new Error('ADMIN_PIN_PEPPER must be configured with at least 32 characters.');
+  }
+
   return crypto.createHmac('sha256', pepper).update(pin.trim()).digest('hex');
 }
 
-export function verifyAdminPin(pin: string, storedHash: string): boolean {
-  const candidateHash = hashAdminPin(pin);
+export function verifyAdminPin(pin: string, storedHash: string, pepper = env.ADMIN_PIN_PEPPER): boolean {
+  const candidateHash = hashAdminPin(pin, pepper);
   if (candidateHash.length !== storedHash.length) {
     return false;
   }
@@ -62,31 +64,15 @@ export function readAdminSessionTokenFromRequest(req: Request): string | null {
   return null;
 }
 
-export async function ensurePrimaryAdminCredential() {
+export async function getPrimaryAdminCredential() {
   const [credential] = await db.select().from(adminCredentials).where(eq(adminCredentials.id, 'primary')).limit(1);
-
-  if (credential) {
-    return credential;
-  }
-
-  const configuredPin = process.env.ADMIN_PIN || DEFAULT_ADMIN_PIN;
-  const pinHash = hashAdminPin(configuredPin);
-
-  const [created] = await db.insert(adminCredentials).values({
-    id: 'primary',
-    pinHash,
-    failedAttempts: 0,
-    lockedUntil: null,
-    updatedAt: new Date(),
-  }).returning();
-
-  return created;
+  return credential ?? null;
 }
 
 export function getAdminCookieOptions() {
   return {
     httpOnly: true,
-    sameSite: 'lax' as const,
+    sameSite: env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
     secure: process.env.NODE_ENV === 'production',
     path: '/',
     maxAge: DEFAULT_SESSION_TTL_MS,

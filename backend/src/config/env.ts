@@ -15,6 +15,7 @@ const envSchema = z.object({
   SUPABASE_SECRET_KEY: z.string().optional(),
   SUPABASE_JWKS_URL: z.string().optional(),
   ADMIN_PIN_PEPPER: z.string().optional(),
+  ADMIN_ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
 
   ALLOW_UNSAFE_DB: z.string().optional().default('false').transform((val) => val === 'true'),
   ALLOW_UNSAFE_SEEDS: z.string().optional().default('false').transform((val) => val === 'true'),

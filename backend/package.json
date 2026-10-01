@@ -11,6 +11,7 @@
     "build": "tsc",
     "db:generate": "tsx src/db/generate.ts",
     "db:migrate": "tsx src/db/migrate.ts",
+    "admin:bootstrap": "tsx src/admin/bootstrap.ts",
     "migrate": "npm run db:migrate",
     "simulate:fixture": "tsx src/workers/enqueue-simulation.ts",
     "test": "tsx src/tests/comprehensive-test.ts"

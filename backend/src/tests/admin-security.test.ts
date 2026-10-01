@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { hashAdminPin, verifyAdminPin, createAdminSessionToken, verifyAdminSessionToken } from '../admin/security';
 
 const pin = '1234';
-const hash = hashAdminPin(pin);
+const pepper = 'test-only-admin-pin-pepper-with-sufficient-length';
+const hash = hashAdminPin(pin, pepper);
 assert.notEqual(hash, pin, 'hashed pin should not match plain text');
-assert.equal(verifyAdminPin(pin, hash), true, 'verify should accept the original pin');
-assert.equal(verifyAdminPin('9999', hash), false, 'verify should reject a mismatched pin');
+assert.equal(verifyAdminPin(pin, hash, pepper), true, 'verify should accept the original pin');
+assert.equal(verifyAdminPin('9999', hash, pepper), false, 'verify should reject a mismatched pin');
+assert.throws(() => hashAdminPin(pin, 'short'), /at least 32 characters/, 'PIN hashing should require a strong pepper');
 
 const token = createAdminSessionToken('primary');
 const parsed = verifyAdminSessionToken(token);

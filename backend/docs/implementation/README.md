@@ -114,6 +114,18 @@ npm run migrate
 # or: npm run db:migrate
 ```
 
+### Admin PIN Bootstrap
+Admin credentials are not created automatically. Configure a private `ADMIN_PIN_PEPPER` of at least 32 characters and the browser origins allowed to use the admin session:
+
+```env
+ADMIN_PIN_PEPPER=<private random secret>
+ADMIN_ALLOWED_ORIGINS=https://your-frontend-domain.example
+```
+
+After the admin-table migration has been applied to the database selected by `DATABASE_URL`, run `npm run admin:bootstrap` from a trusted interactive terminal. Confirm the operation and enter the four-digit PIN twice; input is hidden and only its keyed hash is stored. The command refuses to overwrite an existing credential. Keep the pepper in the backend secret store and configure the same value for the API process.
+
+A four-digit PIN is not sufficient as the only barrier for a public admin endpoint. Restrict admin access with a VPN, private network, or equivalent access policy in addition to the PIN and rate limits.
+
 ### Database Seeding
 Seed initial competitions (Premier League, La Liga, Serie A) for a selectable season:
 ```bash

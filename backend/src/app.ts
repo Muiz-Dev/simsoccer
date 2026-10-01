@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
 import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
@@ -11,13 +12,51 @@ import { placePlayMoneyBet } from './betting/bet-service';
 import { MatchEngine } from './simulation/match-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
 import { eq, and, asc, desc, inArray } from 'drizzle-orm';
-import { ensurePrimaryAdminCredential, hashAdminPin, verifyAdminPin, createAdminSessionToken, hashSessionToken, readAdminSessionTokenFromRequest, getAdminCookieOptions, resolveAdminSession, revokeAdminSession } from './admin/security';
+import { getPrimaryAdminCredential, verifyAdminPin, createAdminSessionToken, hashSessionToken, readAdminSessionTokenFromRequest, getAdminCookieOptions, resolveAdminSession, revokeAdminSession } from './admin/security';
+import { coerceLeagueInput, coerceTeamInput } from './admin/operations';
+
+const adminAllowedOrigins = new Set(env.ADMIN_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many admin PIN attempts. Try again later.' },
+});
+
+function requireAdminOrigin(req: Request, res: Response, next: NextFunction) {
+  const origin = req.get('Origin');
+  if (!origin || !adminAllowedOrigins.has(origin)) {
+    return res.status(403).json({ error: 'UNTRUSTED_ORIGIN', message: 'Admin requests must come from a configured origin.' });
+  }
+  return next();
+}
+
+async function requireAdminSession(req: Request, res: Response) {
+  const token = readAdminSessionTokenFromRequest(req);
+  const session = await resolveAdminSession(token);
+
+  if (!session) {
+    res.status(401).json({ error: 'UNAUTHORIZED', message: 'Admin session required.' });
+    return null;
+  }
+
+  return session;
+}
 
 export function createApp() {
   const app = express();
 
   app.use(helmet());
-  app.use(cors());
+  app.use(cors((req, callback) => {
+    const origin = req.get('Origin');
+    if (req.path.startsWith('/api/admin')) {
+      if (!origin || !adminAllowedOrigins.has(origin)) return callback(null, { origin: false });
+      return callback(null, { origin, credentials: true, methods: ['GET', 'POST', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] });
+    }
+    return callback(null, { origin: origin || '*' });
+  }));
   app.use(cookieParser());
   app.use(express.json());
 
@@ -153,14 +192,17 @@ export function createApp() {
     res.json({ generatedAt: new Date().toISOString(), world, leagues: leagueOverviews });
   });
 
-  app.post('/api/admin/login', async (req: Request, res: Response) => {
+  app.post('/api/admin/login', adminLoginLimiter, requireAdminOrigin, async (req: Request, res: Response) => {
     try {
       const { pin } = req.body ?? {};
-      if (typeof pin !== 'string' || pin.trim() === '') {
-        return res.status(400).json({ error: 'INVALID_PIN', message: 'Admin PIN is required.' });
+      if (typeof pin !== 'string' || !/^\d{4}$/.test(pin)) {
+        return res.status(400).json({ error: 'INVALID_PIN', message: 'Enter the four-digit admin PIN.' });
       }
 
-      const credential = await ensurePrimaryAdminCredential();
+      const credential = await getPrimaryAdminCredential();
+      if (!credential) {
+        return res.status(503).json({ error: 'ADMIN_NOT_INITIALIZED', message: 'Run the one-time admin bootstrap command first.' });
+      }
       const now = new Date();
       if (credential.lockedUntil && new Date(credential.lockedUntil).getTime() > now.getTime()) {
         return res.status(423).json({ error: 'PIN_LOCKED', message: 'Admin pin is temporarily locked.' });
@@ -217,13 +259,17 @@ export function createApp() {
     }
   });
 
-  app.post('/api/admin/logout', async (req: Request, res: Response) => {
+  app.post('/api/admin/logout', requireAdminOrigin, async (req: Request, res: Response) => {
     const token = readAdminSessionTokenFromRequest(req);
     if (token) {
       await revokeAdminSession(token);
     }
 
-    res.clearCookie('sim_admin_session', { path: '/' });
+    res.clearCookie('sim_admin_session', {
+      path: '/',
+      sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
+      secure: env.NODE_ENV === 'production',
+    });
     res.json({ ok: true });
   });
 
@@ -239,12 +285,8 @@ export function createApp() {
   });
 
   app.get('/api/admin/summary', async (req: Request, res: Response) => {
-    const token = readAdminSessionTokenFromRequest(req);
-    const session = await resolveAdminSession(token);
-
-    if (!session) {
-      return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Admin session required.' });
-    }
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
 
     try {
       const [world, leaguesList, seasonsList, teamsList, fixturesList, auditRows] = await Promise.all([
@@ -270,6 +312,196 @@ export function createApp() {
     } catch (error: any) {
       console.error('Admin summary failed:', error);
       res.status(503).json({ error: 'ADMIN_SUMMARY_UNAVAILABLE', message: error.message || 'Admin summary unavailable.' });
+    }
+  });
+
+  app.get('/api/admin/leagues', async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+
+    const allLeagues = await db.select().from(leagues).orderBy(asc(leagues.name));
+    res.json(allLeagues);
+  });
+
+  app.post('/api/admin/leagues', requireAdminOrigin, async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+
+    try {
+      const payload = coerceLeagueInput(req.body ?? {});
+      if (!payload.name) {
+        return res.status(400).json({ error: 'INVALID_LEAGUE', message: 'League name is required.' });
+      }
+
+      const existingId = typeof req.body?.id === 'string' ? req.body.id : null;
+      let record: any;
+
+      if (existingId) {
+        const [updated] = await db.update(leagues)
+          .set({
+            name: payload.name,
+            slug: payload.slug,
+            country: payload.country,
+            competitionType: payload.competitionType,
+            teamCount: payload.teamCount,
+            active: payload.active,
+            updatedAt: new Date(),
+          })
+          .where(eq(leagues.id, existingId))
+          .returning();
+
+        record = updated;
+      } else {
+        const [created] = await db.insert(leagues).values({
+          name: payload.name,
+          slug: payload.slug,
+          country: payload.country,
+          competitionType: payload.competitionType,
+          teamCount: payload.teamCount,
+          active: payload.active,
+        }).returning();
+
+        record = created;
+      }
+
+      await db.insert(adminAuditLog).values({
+        actor: 'primary',
+        action: existingId ? 'league.update' : 'league.create',
+        targetType: 'league',
+        targetId: record.id,
+        summary: `League ${payload.name} ${existingId ? 'updated' : 'created'} by admin control room.`,
+        metadata: { league: record },
+      });
+
+      return res.status(200).json(record);
+    } catch (error: any) {
+      console.error('Admin league save failed:', error);
+      return res.status(500).json({ error: 'ADMIN_LEAGUE_SAVE_FAILED', message: error.message || 'Unable to save league.' });
+    }
+  });
+
+  app.get('/api/admin/teams', async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+
+    const activeSeasons = await db.select({ id: seasons.id, name: seasons.name, seasonNumber: seasons.seasonNumber })
+      .from(seasons)
+      .where(eq(seasons.status, 'ACTIVE'));
+    const seasonIds = activeSeasons.map((season) => season.id);
+    const ratingRows = seasonIds.length === 0 ? [] : await db.select({
+      teamId: teamRatings.teamId,
+      seasonId: teamRatings.seasonId,
+      overallAbility: teamRatings.overallAbility,
+      attackStrength: teamRatings.attackStrength,
+      defenseStrength: teamRatings.defenseStrength,
+      creationRating: teamRatings.creationRating,
+      finishingRating: teamRatings.finishingRating,
+      goalkeepingRating: teamRatings.goalkeepingRating,
+      pressingRating: teamRatings.pressingRating,
+      disciplineRating: teamRatings.disciplineRating,
+      homeAdvantage: teamRatings.homeAdvantage,
+      form: teamRatings.form,
+    })
+      .from(teamRatings)
+      .where(inArray(teamRatings.seasonId, seasonIds));
+    const seasonById = new Map(activeSeasons.map((season) => [season.id, season]));
+    const ratingsByTeamId = new Map<string, Array<Record<string, unknown>>>();
+
+    for (const rating of ratingRows) {
+      const season = seasonById.get(rating.seasonId);
+      const teamRatingsForTeam = ratingsByTeamId.get(rating.teamId) ?? [];
+      teamRatingsForTeam.push({
+        seasonId: rating.seasonId,
+        seasonName: season?.name,
+        seasonNumber: season?.seasonNumber,
+        overallAbility: Number(rating.overallAbility),
+        attackStrength: Number(rating.attackStrength),
+        defenseStrength: Number(rating.defenseStrength),
+        creationRating: Number(rating.creationRating),
+        finishingRating: Number(rating.finishingRating),
+        goalkeepingRating: Number(rating.goalkeepingRating),
+        pressingRating: Number(rating.pressingRating),
+        disciplineRating: Number(rating.disciplineRating),
+        homeAdvantage: Number(rating.homeAdvantage),
+        form: Number(rating.form),
+      });
+      ratingsByTeamId.set(rating.teamId, teamRatingsForTeam);
+    }
+
+    const teamRows = await db.select({
+      id: teams.id,
+      leagueId: teams.leagueId,
+      name: teams.name,
+      shortName: teams.shortName,
+      slug: teams.slug,
+      stadiumName: teams.stadiumName,
+      active: teams.active,
+      leagueName: leagues.name,
+    })
+      .from(teams)
+      .leftJoin(leagues, eq(teams.leagueId, leagues.id))
+      .orderBy(asc(teams.name));
+
+    res.json(teamRows.map((team) => ({
+      ...team,
+      ratings: ratingsByTeamId.get(team.id) ?? [],
+    })));
+  });
+
+  app.post('/api/admin/teams', requireAdminOrigin, async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+
+    try {
+      const payload = coerceTeamInput(req.body ?? {});
+      if (!payload.name || !payload.leagueId) {
+        return res.status(400).json({ error: 'INVALID_TEAM', message: 'Team name and league are required.' });
+      }
+
+      const existingId = typeof req.body?.id === 'string' ? req.body.id : null;
+      let record: any;
+
+      if (existingId) {
+        const [updated] = await db.update(teams)
+          .set({
+            leagueId: payload.leagueId,
+            name: payload.name,
+            shortName: payload.shortName,
+            slug: payload.slug,
+            stadiumName: payload.stadiumName,
+            active: payload.active,
+            updatedAt: new Date(),
+          })
+          .where(eq(teams.id, existingId))
+          .returning();
+
+        record = updated;
+      } else {
+        const [created] = await db.insert(teams).values({
+          leagueId: payload.leagueId,
+          name: payload.name,
+          shortName: payload.shortName,
+          slug: payload.slug,
+          stadiumName: payload.stadiumName,
+          active: payload.active,
+        }).returning();
+
+        record = created;
+      }
+
+      await db.insert(adminAuditLog).values({
+        actor: 'primary',
+        action: existingId ? 'team.update' : 'team.create',
+        targetType: 'team',
+        targetId: record.id,
+        summary: `Team ${payload.name} ${existingId ? 'updated' : 'created'} by admin control room.`,
+        metadata: { team: record },
+      });
+
+      return res.status(200).json(record);
+    } catch (error: any) {
+      console.error('Admin team save failed:', error);
+      return res.status(500).json({ error: 'ADMIN_TEAM_SAVE_FAILED', message: error.message || 'Unable to save team.' });
     }
   });
 
