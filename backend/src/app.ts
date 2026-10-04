@@ -182,7 +182,7 @@ export function createApp() {
           .where(eq(standings.seasonId, season.id))
           .orderBy(desc(standings.points), desc(standings.goalDifference), desc(standings.goalsFor), asc(teams.name)),
         db.select().from(fixtures)
-          .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, season.currentRound)))
+        .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, selectedRound)))
         .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id)),
         nextRoundQuery,
         previousRoundQuery,
