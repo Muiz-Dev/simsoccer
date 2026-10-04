@@ -261,7 +261,13 @@ export const oddsSnapshots = pgTable('odds_snapshots', {
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
+  authSubject: text('auth_subject').unique(),
   email: text('email').notNull().unique(),
+  firstName: text('first_name'),
+  lastName: text('last_name'),
+  phone: text('phone'),
+  privacyNoticeVersion: text('privacy_notice_version'),
+  termsAcceptedAt: timestamp('terms_accepted_at'),
   role: text('role').notNull().default('USER'), // USER, ADMIN, SUPER_ADMIN
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -318,6 +324,20 @@ export const settlements = pgTable('settlements', {
   payoutAmount: numeric('payout_amount').notNull().default('0.00'),
   settledAt: timestamp('settled_at').notNull().defaultNow(),
 });
+
+export const marketOutcomeSettlements = pgTable('market_outcome_settlements', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fixtureId: uuid('fixture_id').notNull().references(() => fixtures.id),
+  marketId: uuid('market_id').notNull().references(() => markets.id),
+  marketOutcomeId: uuid('market_outcome_id').notNull().references(() => marketOutcomes.id),
+  outcomeCode: text('outcome_code').notNull(),
+  status: text('status').notNull(), // WON, LOST, VOID
+  fixtureResultHash: text('fixture_result_hash').notNull(),
+  rulesVersion: text('rules_version').notNull(),
+  settledAt: timestamp('settled_at').notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('market_outcome_settlements_outcome_idx').on(table.marketOutcomeId),
+]);
 
 export const bookingSlips = pgTable('booking_slips', {
   id: uuid('id').primaryKey().defaultRandom(),

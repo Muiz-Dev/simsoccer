@@ -18,6 +18,7 @@ import LiveTvIcon from "@mui/icons-material/LiveTv";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
+import AuthAction from "@/components/AuthAction";
 import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
 import type { Fixture, Standing } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
@@ -269,6 +270,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <RefreshIcon fontSize="small" />
             </IconButton>
           </Tooltip>
+          <AuthAction />
         </div>
       </header>
 

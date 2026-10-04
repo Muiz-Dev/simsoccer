@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
 import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
-import { authenticateJwt, requireRole, AuthenticatedRequest } from './auth/jwt';
+import { authenticateJwt, requireLocalAccount, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
 import { getFixtureStatistics } from './betting/statistics-service';
@@ -15,6 +15,17 @@ import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordina
 import { eq, and, asc, desc, inArray } from 'drizzle-orm';
 import { getPrimaryAdminCredential, verifyAdminPin, createAdminSessionToken, hashSessionToken, readAdminSessionTokenFromRequest, getAdminCookieOptions, resolveAdminSession, revokeAdminSession } from './admin/security';
 import { coerceLeagueInput, coerceTeamInput } from './admin/operations';
+import { z } from 'zod';
+
+const placeBetRequestSchema = z.object({
+  selections: z.array(z.object({
+    fixtureId: z.string().uuid(),
+    marketId: z.string().uuid(),
+    outcomeCode: z.string().trim().min(1).max(80),
+  }).strict()).min(1).max(20),
+  stake: z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/),
+  idempotencyKey: z.string().uuid(),
+}).strict();
 
 const adminAllowedOrigins = new Set(env.ADMIN_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
 const adminLoginLimiter = rateLimit({
@@ -630,34 +641,79 @@ export function createApp() {
   });
 
   // 5. Betting API
-  app.post('/api/bets', authenticateJwt, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { fixtureId, marketId, outcomeCode, stake, idempotencyKey } = req.body;
-      const userId = req.user!.id;
+  app.post('/api/bets', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = placeBetRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID_BET', message: 'Check the stake and selected market.' });
+    }
 
+    try {
       const bet = await placePlayMoneyBet({
-        userId,
-        fixtureId,
-        marketId,
-        outcomeCode,
-        stake: parseFloat(stake),
-        idempotencyKey,
+        userId: req.user!.id,
+        ...parsed.data,
       });
 
-      res.status(201).json(bet);
-    } catch (err: any) {
-      res.status(400).json({ error: 'BET_PLACEMENT_FAILED', message: err.message });
+      return res.status(201).json(bet);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      const safeMessage = message === 'Wallet balance is insufficient.'
+        ? message
+        : message === 'Betting for this round is closed.' || message === 'Fixture is outside the current betting rounds.'
+          ? message
+          : message === 'Selected odds are no longer available.'
+            || message === 'One or more fixtures are not available for betting.'
+            || message === 'All selections must belong to the same world round.'
+            || message === 'A straight multiple can include only one selection per fixture.'
+            ? message
+            : null;
+      if (safeMessage) return res.status(409).json({ error: 'BET_NOT_ACCEPTED', message: safeMessage });
+      console.error('Bet placement failed:', error);
+      return res.status(503).json({ error: 'BETTING_UNAVAILABLE', message: 'Betting is temporarily unavailable. Try again.' });
+    }
+  });
+
+  app.get('/api/bets', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const userBets = await db.select().from(bets)
+        .where(eq(bets.userId, req.user!.id))
+        .orderBy(desc(bets.placedAt))
+        .limit(100);
+      const betIds = userBets.map((bet) => bet.id);
+      const selections = betIds.length === 0
+        ? []
+        : await db.select().from(betSelections).where(inArray(betSelections.betId, betIds));
+      return res.json(userBets.map((bet) => ({
+        ...bet,
+        selections: selections.filter((selection) => selection.betId === bet.id),
+      })));
+    } catch (error) {
+      console.error('Bet history lookup failed:', error);
+      return res.status(503).json({ error: 'BET_HISTORY_UNAVAILABLE', message: 'Bet history is temporarily unavailable.' });
+    }
+  });
+
+  app.get('/api/bets/:betId', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const [bet] = await db.select().from(bets)
+        .where(and(eq(bets.id, req.params.betId as string), eq(bets.userId, req.user!.id)))
+        .limit(1);
+      if (!bet) return res.status(404).json({ error: 'BET_NOT_FOUND', message: 'Bet ticket was not found.' });
+      const selections = await db.select().from(betSelections).where(eq(betSelections.betId, bet.id));
+      return res.json({ ...bet, selections });
+    } catch (error) {
+      console.error('Bet ticket lookup failed:', error);
+      return res.status(503).json({ error: 'BET_TICKET_UNAVAILABLE', message: 'Bet ticket is temporarily unavailable.' });
     }
   });
 
   // 6. Wallet API
-  app.get('/api/wallet', authenticateJwt, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/wallet', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.userId, req.user!.id));
     if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
     res.json(wallet);
   });
 
-  app.get('/api/wallet/transactions', authenticateJwt, async (req: AuthenticatedRequest, res: Response) => {
+  app.get('/api/wallet/transactions', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.userId, req.user!.id));
     if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 

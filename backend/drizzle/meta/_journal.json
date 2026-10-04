@@ -36,6 +36,20 @@
       "when": 1790840510541,
       "tag": "0004_ordinary_malcolm_colcord",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790840510542,
+      "tag": "0005_user_auth_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790840510543,
+      "tag": "0006_durable_market_outcomes",
+      "breakpoints": true
     }
   ]
 }

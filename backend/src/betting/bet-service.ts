@@ -1,112 +1,201 @@
 import { db } from '../db/index';
-import { wallets, walletTransactions, bets, betSelections, markets, marketOutcomes, fixtures } from '../db/schema/index';
+import {
+  bets,
+  betSelections,
+  fixtures,
+  leagues,
+  marketOutcomes,
+  markets,
+  seasons,
+  wallets,
+  walletTransactions,
+  worldRuntime,
+} from '../db/schema/index';
 import Decimal from 'decimal.js';
-import { eq, and } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { getRoundCutoffAt, normalizeTimestamp } from './round-market-policy';
 
-export interface PlaceBetInput {
-  userId: string;
+const MAX_BET_SELECTIONS = 20;
+
+export interface PlaceBetSelectionInput {
   fixtureId: string;
   marketId: string;
   outcomeCode: string;
-  stake: number;
-  idempotencyKey?: string;
+}
+
+export interface PlaceBetInput {
+  userId: string;
+  selections: PlaceBetSelectionInput[];
+  stake: string;
+  idempotencyKey: string;
+}
+
+export function calculateAcceptedMultiple(stakeValue: string, oddsValues: string[]) {
+  const stake = new Decimal(stakeValue);
+  const totalOdds = oddsValues.reduce((total, odds) => total.mul(odds), new Decimal(1))
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const potentialPayout = stake.mul(totalOdds).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  return { totalOdds, potentialPayout };
 }
 
 /**
  * Places a play-money bet with atomic ACID ledger transaction, balance checks, and idempotency protection.
  */
 export async function placePlayMoneyBet(input: PlaceBetInput) {
-  const { userId, fixtureId, marketId, outcomeCode, stake, idempotencyKey } = input;
-
-  if (stake <= 0) {
-    throw new Error('Stake amount must be strictly greater than zero');
+  const { userId, selections, stake, idempotencyKey } = input;
+  let stakeAmount: Decimal;
+  try {
+    stakeAmount = new Decimal(stake);
+  } catch {
+    throw new Error('Stake must be a valid amount greater than zero.');
+  }
+  if (!stakeAmount.isFinite() || stakeAmount.lessThanOrEqualTo(0) || stakeAmount.decimalPlaces() > 2) {
+    throw new Error('Stake must be a valid amount greater than zero with at most two decimal places.');
+  }
+  if (!idempotencyKey || idempotencyKey.length > 200) {
+    throw new Error('A valid idempotency key is required.');
+  }
+  if (selections.length === 0 || selections.length > MAX_BET_SELECTIONS) {
+    throw new Error(`A bet must contain between 1 and ${MAX_BET_SELECTIONS} selections.`);
+  }
+  const fixtureIds = selections.map((selection) => selection.fixtureId);
+  if (new Set(fixtureIds).size !== fixtureIds.length) {
+    throw new Error('A straight multiple can include only one selection per fixture.');
   }
 
-  // Idempotency check
-  if (idempotencyKey) {
-    const [existingBet] = await db.select().from(bets).where(eq(bets.idempotencyKey, idempotencyKey));
-    if (existingBet) {
-      console.log(`ℹ️ Bet request with idempotency key '${idempotencyKey}' already processed.`);
-      return existingBet;
+  const scopedIdempotencyKey = createHash('sha256').update(`${userId}:${idempotencyKey}`).digest('hex');
+  return db.transaction(async (tx) => {
+    const [wallet] = await tx.select().from(wallets)
+      .where(eq(wallets.userId, userId))
+      .for('update')
+      .limit(1);
+    if (!wallet) throw new Error('User wallet not found.');
+
+    const [existingBet] = await tx.select().from(bets)
+      .where(eq(bets.idempotencyKey, scopedIdempotencyKey))
+      .limit(1);
+    if (existingBet) return existingBet;
+
+    const selectedFixtures = await tx.select({
+      id: fixtures.id,
+      round: fixtures.round,
+      status: fixtures.status,
+      seasonId: fixtures.seasonId,
+    })
+      .from(fixtures)
+      .innerJoin(seasons, eq(fixtures.seasonId, seasons.id))
+      .innerJoin(leagues, eq(seasons.leagueId, leagues.id))
+      .where(and(inArray(fixtures.id, fixtureIds), eq(seasons.status, 'ACTIVE'), eq(leagues.active, true)));
+    if (selectedFixtures.length !== selections.length || selectedFixtures.some((fixture) => fixture.status !== 'SCHEDULED')) {
+      throw new Error('One or more fixtures are not available for betting.');
     }
-  }
+    const selectedRound = selectedFixtures[0].round;
+    if (selectedFixtures.some((fixture) => fixture.round !== selectedRound)) {
+      throw new Error('All selections must belong to the same world round.');
+    }
 
-  // 1. Verify fixture is not yet started or finished
-  const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
-  if (!fixture) {
-    throw new Error('Fixture not found');
-  }
-  if (fixture.status !== 'SCHEDULED') {
-    throw new Error(`Market closed! Cannot place pre-match bet on fixture with status '${fixture.status}'`);
-  }
+    const [runtime] = await tx.select({
+      currentRound: worldRuntime.currentRound,
+    })
+      .from(worldRuntime)
+      .where(eq(worldRuntime.id, 'singleton'))
+      .limit(1);
+    if (!runtime || selectedRound < runtime.currentRound || selectedRound > runtime.currentRound + 1) {
+      throw new Error('Fixture is outside the current betting rounds.');
+    }
 
-  // 2. Fetch market outcome and current odds
-  const [market] = await db.select().from(markets).where(and(eq(markets.id, marketId), eq(markets.fixtureId, fixtureId)));
-  if (!market || market.status !== 'OPEN') {
-    throw new Error('Market is closed or suspended');
-  }
+    const activeSeasons = await tx.select({ id: seasons.id })
+      .from(seasons)
+      .innerJoin(leagues, eq(seasons.leagueId, leagues.id))
+      .where(and(eq(seasons.status, 'ACTIVE'), eq(leagues.active, true)));
+    const seasonIds = activeSeasons.map((season) => season.id);
+    if (seasonIds.length === 0) throw new Error('No active betting round is available.');
 
-  const [outcome] = await db.select().from(marketOutcomes).where(and(eq(marketOutcomes.marketId, marketId), eq(marketOutcomes.outcomeCode, outcomeCode)));
-  if (!outcome) {
-    throw new Error(`Invalid outcome code '${outcomeCode}' for market`);
-  }
+    const roundFixtures = await tx.select({ scheduledAt: fixtures.scheduledAt, status: fixtures.status })
+      .from(fixtures)
+      .where(and(inArray(fixtures.seasonId, seasonIds), eq(fixtures.round, selectedRound)));
+    const cutoffAt = getRoundCutoffAt(
+      roundFixtures
+        .filter((row) => row.status !== 'CANCELLED' && row.status !== 'POSTPONED')
+        .map((row) => row.scheduledAt),
+    );
+    const [databaseClock] = await tx.select({ now: sql<string>`clock_timestamp()` })
+      .from(worldRuntime)
+      .where(eq(worldRuntime.id, 'singleton'))
+      .limit(1);
+    if (!cutoffAt || !databaseClock || normalizeTimestamp(databaseClock.now) >= cutoffAt) {
+      throw new Error('Betting for this round is closed.');
+    }
 
-  const acceptedOdds = parseFloat(outcome.odds);
-  const potentialPayout = new Decimal(stake).mul(acceptedOdds).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+    const marketIds = [...new Set(selections.map((selection) => selection.marketId))];
+    const quotes = await tx.select({
+      marketId: markets.id,
+      marketStatus: markets.status,
+      marketFixtureId: markets.fixtureId,
+      outcomeCode: marketOutcomes.outcomeCode,
+      outcomeStatus: marketOutcomes.status,
+      odds: marketOutcomes.odds,
+    })
+      .from(markets)
+      .innerJoin(marketOutcomes, eq(marketOutcomes.marketId, markets.id))
+      .where(inArray(markets.id, marketIds));
+    const quoteByKey = new Map(quotes.map((quote) => [`${quote.marketId}:${quote.outcomeCode}`, quote]));
+    const acceptedSelections = selections.map((selection) => {
+      const quote = quoteByKey.get(`${selection.marketId}:${selection.outcomeCode}`);
+      if (!quote
+        || quote.marketFixtureId !== selection.fixtureId
+        || quote.marketStatus !== 'OPEN'
+        || quote.outcomeStatus !== 'OPEN') {
+        throw new Error('Selected odds are no longer available.');
+      }
+      return { ...selection, odds: quote.odds };
+    });
 
-  // 3. Atomic PostgreSQL Transaction: Debit Wallet + Write Ledger + Create Bet
-  return await db.transaction(async (tx) => {
-    const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId));
-    if (!wallet) {
-      throw new Error('User wallet not found');
+    const { totalOdds, potentialPayout } = calculateAcceptedMultiple(
+      stakeAmount.toFixed(2),
+      acceptedSelections.map((selection) => selection.odds),
+    );
+    if (totalOdds.lessThan(1.01)) {
+      throw new Error('Accepted combined odds are invalid.');
     }
 
     const currentBalance = new Decimal(wallet.balance);
-    const stakeDec = new Decimal(stake);
+    if (currentBalance.lessThan(stakeAmount)) throw new Error('Wallet balance is insufficient.');
 
-    if (currentBalance.lessThan(stakeDec)) {
-      throw new Error(`Insufficient wallet balance. Available: ${currentBalance.toFixed(2)}, Required: ${stakeDec.toFixed(2)}`);
-    }
-
-    const newBalance = currentBalance.sub(stakeDec).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-
-    // Update wallet
-    await tx.update(wallets)
-      .set({ balance: newBalance.toFixed(2), updatedAt: new Date() })
-      .where(eq(wallets.id, wallet.id));
-
-    // Create Bet
+    const newBalance = currentBalance.sub(stakeAmount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
     const [newBet] = await tx.insert(bets).values({
       userId,
-      idempotencyKey,
-      stake: stake.toFixed(2),
-      totalOdds: acceptedOdds.toFixed(2),
+      idempotencyKey: scopedIdempotencyKey,
+      stake: stakeAmount.toFixed(2),
+      totalOdds: totalOdds.toFixed(2),
       potentialPayout: potentialPayout.toFixed(2),
       status: 'PENDING',
     }).returning();
 
-    // Create Bet Selection
-    await tx.insert(betSelections).values({
-      betId: newBet.id,
-      fixtureId,
-      marketId,
-      outcomeCode,
-      odds: acceptedOdds.toFixed(2),
-      status: 'PENDING',
-    });
+    await tx.update(wallets)
+      .set({ balance: newBalance.toFixed(2), updatedAt: new Date() })
+      .where(eq(wallets.id, wallet.id));
 
-    // Write Wallet Ledger Transaction
+    await tx.insert(betSelections).values(acceptedSelections.map((selection) => ({
+      betId: newBet.id,
+      fixtureId: selection.fixtureId,
+      marketId: selection.marketId,
+      outcomeCode: selection.outcomeCode,
+      odds: new Decimal(selection.odds).toFixed(2),
+      status: 'PENDING',
+    })));
+
     await tx.insert(walletTransactions).values({
       walletId: wallet.id,
       type: 'BET_DEBIT',
-      amount: `-${stakeDec.toFixed(2)}`,
+      amount: `-${stakeAmount.toFixed(2)}`,
       balanceBefore: currentBalance.toFixed(2),
       balanceAfter: newBalance.toFixed(2),
       referenceType: 'BET',
       referenceId: newBet.id,
     });
 
-    console.log(`✅ Bet placed successfully! Bet ID: ${newBet.id}, Stake: ${stake}, Odds: ${acceptedOdds}, Potential Payout: ${potentialPayout}`);
     return newBet;
   });
 }

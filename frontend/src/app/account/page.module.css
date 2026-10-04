@@ -1,0 +1,34 @@
+.page { min-height: 100vh; padding: 0 24px 48px; background: var(--paper); color: var(--ink); }
+.header { display: flex; width: min(100%, 1120px); min-height: 62px; align-items: center; justify-content: space-between; margin: 0 auto; border-bottom: 1px solid var(--rule); }
+.brand, .backLink { display: inline-flex; align-items: center; gap: 8px; color: var(--pitch); font-size: 14px; font-weight: 700; text-decoration: none; }
+.brand svg { font-size: 21px; }
+.backLink { color: var(--muted); font-size: 12px; font-weight: 500; }
+.content { width: min(100%, 760px); margin: 42px auto 0; }
+.heading, .wallet, .sectionTitle { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.heading { padding-bottom: 18px; border-bottom: 1px solid var(--rule); }
+.heading p, .wallet p { margin: 0 0 5px; color: var(--muted); font-size: 12px; }
+.heading h1 { margin: 0; font-size: 28px; line-height: 1.1; }
+.heading button { min-height: 38px; padding: 0 13px; border: 1px solid var(--rule); background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.heading button:disabled { opacity: .65; }
+.profile, .transactions { padding: 20px 0; border-bottom: 1px solid var(--rule); }
+.profile h2, .wallet h2, .sectionTitle h2 { margin: 0; font-size: 16px; }
+.profile dl { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 15px 0 0; }
+.profile dl div { min-width: 0; }
+.profile dt { margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+.profile dd { margin: 0; overflow-wrap: anywhere; font-size: 14px; }
+.wallet { min-height: 94px; padding: 18px 0; border-bottom: 1px solid var(--rule); }
+.wallet p { margin: 5px 0 0; font-size: 11px; }
+.wallet > strong { color: var(--pitch); font-size: 24px; font-variant-numeric: tabular-nums; }
+.wallet > strong span { color: var(--muted); font-size: 11px; font-weight: 500; }
+.sectionTitle a { color: var(--pitch); font-size: 12px; text-underline-offset: 3px; }
+.tableWrap { overflow-x: auto; margin-top: 12px; }
+.tableWrap table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.tableWrap th, .tableWrap td { padding: 10px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.tableWrap th { color: var(--muted); font-size: 10px; font-weight: 600; }
+.empty { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+.error { padding: 10px 12px; border-left: 3px solid #a7322b; background: #fff3f1; color: #85241f; font-size: 12px; }
+.loading { display: flex; align-items: center; gap: 9px; padding: 22px 0; color: var(--muted); font-size: 13px; }
+.loading span { width: 16px; height: 16px; border: 2px solid #d9dfda; border-top-color: var(--pitch); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 520px) { .page { padding-inline: 16px; } .content { margin-top: 28px; } .heading h1 { font-size: 24px; } .profile dl { grid-template-columns: 1fr; gap: 12px; } .wallet > strong { font-size: 20px; } }
+@media (prefers-reduced-motion: reduce) { .loading span { animation: none; } }

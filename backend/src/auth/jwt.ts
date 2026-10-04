@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { JwtHeader, SigningKeyCallback } from 'jsonwebtoken';
 import jwksRsa from 'jwks-rsa';
+import { eq } from 'drizzle-orm';
 import { env } from '../config/env';
+import { db } from '../db/index';
+import { users } from '../db/schema/index';
 
 export interface AuthenticatedUser {
   id: string;
@@ -114,4 +117,24 @@ export function requireRole(allowedRoles: string[]) {
 
     return next();
   };
+}
+
+export function requireLocalAccount(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Authentication required.' });
+  }
+
+  db.select({ id: users.id })
+    .from(users)
+    .where(eq(users.authSubject, req.user.id))
+    .limit(1)
+    .then(([account]) => {
+      if (!account) {
+        return res.status(403).json({ error: 'ACCOUNT_NOT_READY', message: 'Complete account setup before betting.' });
+      }
+
+      req.user!.id = account.id;
+      return next();
+    })
+    .catch(() => res.status(503).json({ error: 'ACCOUNT_UNAVAILABLE', message: 'Account services are temporarily unavailable.' }));
 }

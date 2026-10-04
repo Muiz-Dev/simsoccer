@@ -51,3 +51,37 @@ export function calculateStraightMultiple(
     potentialProfit: potentialProfit.toFixed(2),
   };
 }
+
+export type MultipleLegOutcome = 'WON' | 'LOST' | 'VOID';
+
+export interface MultipleSettlement {
+  status: 'WON' | 'LOST' | 'VOID';
+  payout: string;
+}
+
+export function calculateStraightMultipleSettlement(
+  selections: Array<{ outcome: MultipleLegOutcome; odds: number }>,
+  stake: string,
+): MultipleSettlement {
+  if (selections.length === 0) throw new Error('A multiple settlement requires at least one selection.');
+  const stakeAmount = new Decimal(stake);
+  if (!stakeAmount.isFinite() || stakeAmount.lessThanOrEqualTo(0)) {
+    throw new Error('Settlement stake must be greater than zero.');
+  }
+  if (selections.some(({ odds }) => !Number.isFinite(odds) || odds < 1.01)) {
+    throw new Error('Settlement contains invalid accepted odds.');
+  }
+  if (selections.some(({ outcome }) => outcome === 'LOST')) {
+    return { status: 'LOST', payout: '0.00' };
+  }
+
+  const winningLegs = selections.filter(({ outcome }) => outcome === 'WON');
+  if (winningLegs.length === 0) {
+    return { status: 'VOID', payout: stakeAmount.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2) };
+  }
+
+  const winningOdds = winningLegs.reduce((total, selection) => total.mul(selection.odds), new Decimal(1))
+    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const payout = stakeAmount.mul(winningOdds).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  return { status: 'WON', payout: payout.toFixed(2) };
+}

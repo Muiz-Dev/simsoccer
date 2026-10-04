@@ -381,6 +381,101 @@
   font-size: 13px;
 }
 
+.loadingState {
+  background: var(--desk-white);
+}
+
+.loadingLabel {
+  display: flex;
+  min-height: 43px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--desk-rule);
+  color: var(--desk-muted);
+  font-size: 12px;
+}
+
+.loadingSpinner {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px solid #dce8df;
+  border-top-color: var(--desk-pitch);
+  border-right-color: var(--desk-pitch);
+  border-radius: 50%;
+  color: var(--desk-pitch-deep);
+  animation: loadingSpin 1s linear infinite;
+}
+
+.loadingSpinner svg {
+  font-size: 12px;
+}
+
+.skeletonFixtureList {
+  background: var(--desk-white);
+}
+
+.skeletonFixture {
+  display: grid;
+  min-width: 700px;
+  min-height: 59px;
+  grid-template-columns: minmax(185px, 1.2fr) minmax(0, 8fr) 30px;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 9px;
+  border-bottom: 1px solid var(--desk-rule);
+}
+
+.skeletonFixtureInfo {
+  display: grid;
+  gap: 6px;
+}
+
+.skeletonBlock {
+  display: block;
+  border-radius: 2px;
+  background: #e7ece8;
+  animation: skeletonPulse 1.4s ease-in-out infinite;
+}
+
+.skeletonTime {
+  width: 48px;
+  height: 8px;
+}
+
+.skeletonTeams {
+  width: 82%;
+  height: 12px;
+}
+
+.skeletonOddsGrid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.skeletonOdds {
+  min-width: 0;
+  height: 34px;
+  border: 1px solid #d7e3da;
+}
+
+.skeletonExpand {
+  width: 30px;
+  height: 34px;
+}
+
+@keyframes loadingSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes skeletonPulse {
+  50% { opacity: 0.5; }
+}
+
 .errorBanner,
 .statusBanner {
   margin: 0;
@@ -1106,6 +1201,46 @@
     display: grid;
     gap: 8px;
     padding: 4px 10px 12px;
+  }
+
+  .skeletonFixture {
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-rows: auto auto;
+    gap: 7px 6px;
+    padding: 8px 10px 12px;
+  }
+
+  .skeletonFixtureInfo {
+    grid-column: 1;
+    grid-row: 1;
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+  }
+
+  .skeletonTeams {
+    width: 86%;
+  }
+
+  .skeletonOddsGrid {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .skeletonOdds {
+    height: 44px;
+  }
+
+  .skeletonExpand {
+    width: 40px;
+    height: 40px;
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .mobileMarketGroup {

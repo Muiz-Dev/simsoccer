@@ -7,6 +7,9 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
+import { useRouter } from "next/navigation";
+import AuthAction from "@/components/AuthAction";
+import { supabase } from "@/lib/supabase/client";
 import { formatLocalDateTime, formatLocalTime, useBrowserTimeZone } from "@/lib/time-zone";
 import styles from "./BettingDesk.module.css";
 
@@ -116,7 +119,9 @@ type FixtureStatistics = {
 };
 
 type QuickMarket = { marketType: string; outcomeCode: string; label: string };
+type AcceptedBet = { id: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const ACCOUNTS_API_URL = (process.env.NEXT_PUBLIC_ACCOUNTS_API_URL ?? "").replace(/\/$/, "");
 const QUICK_MARKETS: QuickMarket[] = [
   { marketType: "1X2", outcomeCode: "1", label: "1" },
   { marketType: "1X2", outcomeCode: "X", label: "X" },
@@ -191,12 +196,13 @@ function selectionFromMarket(fixture: Fixture, market: Market, outcome: Outcome)
 }
 
 export default function BettingDesk() {
+  const router = useRouter();
   const timeZone = useBrowserTimeZone();
   const [data, setData] = useState<MarketResponse | null>(null);
   const [round, setRound] = useState<number | null>(null);
   const [selectedLeagueId, setSelectedLeagueId] = useState("");
   const [selections, setSelections] = useState<Selection[]>([]);
-  const [slipView, setSlipView] = useState<"slip" | "booking">("slip");
+  const [slipView, setSlipView] = useState<"slip" | "booking" | "ticket">("slip");
   const [expandedFixtureId, setExpandedFixtureId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<"markets" | "statistics">("markets");
   const [fixtureStatistics, setFixtureStatistics] = useState<FixtureStatistics | null>(null);
@@ -204,6 +210,9 @@ export default function BettingDesk() {
   const [mobileSlipOpen, setMobileSlipOpen] = useState(false);
   const [bookingCode, setBookingCode] = useState("");
   const [savedCode, setSavedCode] = useState("");
+  const [stake, setStake] = useState("");
+  const [acceptedBet, setAcceptedBet] = useState<AcceptedBet | null>(null);
+  const [placingBet, setPlacingBet] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -296,6 +305,9 @@ export default function BettingDesk() {
   const resolvedSelections = selections.map(resolveSelection);
   const totalOdds = resolvedSelections.reduce((total, selection) => total * Number(selection.currentOdds), 1);
   const roundedTotalOdds = resolvedSelections.length ? totalOdds.toFixed(2) : "0.00";
+  const potentialReturn = Number.isFinite(Number(stake)) && Number(stake) > 0
+    ? (Number(stake) * Number(roundedTotalOdds)).toFixed(2)
+    : "0.00";
   const hasUnavailableLeg = resolvedSelections.some((selection) => selection.status !== "OPEN");
   const hasChangedPrice = resolvedSelections.some((selection) => selection.priceChanged);
   const cutoff = data?.cutoffAt ? formatLocalDateTime(data.cutoffAt, timeZone) : null;
@@ -342,6 +354,61 @@ export default function BettingDesk() {
       setSlipView("booking");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Booking code could not be created.");
+    }
+  }
+
+  async function placeBet() {
+    const stakeAmount = Number(stake);
+    if (!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(stakeAmount) || stakeAmount <= 0) return;
+    setError("");
+    setMessage("");
+    setPlacingBet(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push("/auth?next=/betting");
+        return;
+      }
+      if (!API_URL || !ACCOUNTS_API_URL) throw new Error("Betting services are not configured. Try again later.");
+
+      const authHeaders = { Authorization: `Bearer ${session.access_token}` };
+      const accountResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/me`, { headers: authHeaders, cache: "no-store" });
+      if (accountResponse.status === 404) {
+        const provisionResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/provision`, {
+          method: "POST",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        await readApiResponse<{ account: { profileComplete: boolean } }>(provisionResponse, "Account setup could not be completed.");
+      } else {
+        await readApiResponse<{ account: { profileComplete: boolean } }>(accountResponse, "Account details could not be loaded.");
+      }
+
+      const profileResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/me`, { headers: authHeaders, cache: "no-store" });
+      const account = await readApiResponse<{ account: { profileComplete: boolean } }>(profileResponse, "Account details could not be loaded.");
+      if (!account.account.profileComplete) {
+        router.push("/auth?next=/betting");
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/bets`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          selections: resolvedSelections.map(({ fixtureId, marketId, outcomeCode }) => ({ fixtureId, marketId, outcomeCode })),
+          stake: stakeAmount.toFixed(2),
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      });
+      const accepted = await readApiResponse<AcceptedBet>(response, "Bet could not be accepted.");
+      setAcceptedBet(accepted);
+      setSavedCode("");
+      setMessage("Bet accepted.");
+      setSlipView("ticket");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Betting is temporarily unavailable. Try again.");
+    } finally {
+      setPlacingBet(false);
     }
   }
 
@@ -548,6 +615,7 @@ export default function BettingDesk() {
         </Link>
         <div className={styles.headerLinks}>
           <Link href="/">Match centre</Link>
+          <AuthAction />
           <span className={styles.worldState}>
             <span aria-hidden="true" />
             Virtual world
@@ -604,12 +672,37 @@ export default function BettingDesk() {
 
           {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
           {message ? <p className={styles.statusBanner} role="status">{message}</p> : null}
-          {loading && !data ? <p className={styles.emptyState}>Loading markets…</p> : null}
           {!loading && !error && selectedFixtures.length === 0 ? (
             <p className={styles.emptyState}>No fixtures are scheduled for this round.</p>
           ) : null}
 
           <div className={styles.fixtureList}>
+            {loading && !data ? (
+              <div className={styles.loadingState} role="status" aria-live="polite">
+                <div className={styles.loadingLabel}>
+                  <span className={styles.loadingSpinner} aria-hidden="true">
+                    <SportsSoccerIcon />
+                  </span>
+                  <span>Loading fixtures and odds</span>
+                </div>
+                <div className={styles.skeletonFixtureList} aria-hidden="true">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <div className={styles.skeletonFixture} key={index}>
+                      <div className={styles.skeletonFixtureInfo}>
+                        <span className={`${styles.skeletonBlock} ${styles.skeletonTime}`} />
+                        <span className={`${styles.skeletonBlock} ${styles.skeletonTeams}`} />
+                      </div>
+                      <div className={styles.skeletonOddsGrid}>
+                        {QUICK_MARKETS.map((market) => (
+                          <span className={`${styles.skeletonBlock} ${styles.skeletonOdds}`} key={`${index}-${market.marketType}-${market.outcomeCode}`} />
+                        ))}
+                      </div>
+                      <span className={`${styles.skeletonBlock} ${styles.skeletonExpand}`} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {selectedFixtures.map((fixture) => {
               const fixtureCanBet = fixture.status === "SCHEDULED" && fixture.markets.some((market) => market.status === "OPEN");
               return (
@@ -735,11 +828,22 @@ export default function BettingDesk() {
                 {hasChangedPrice ? (
                   <button className={styles.secondaryAction} type="button" onClick={acceptCurrentPrices}>Accept current prices</button>
                 ) : null}
+                <label className={styles.stakeField}>
+                  Stake
+                  <span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="0.00" /><small>credits</small></span>
+                </label>
+                <div className={styles.oddsSummary}>
+                  <span>Potential return</span>
+                  <strong>{potentialReturn}</strong>
+                </div>
                 <button className={styles.primaryAction} type="button" disabled={!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice} onClick={() => void saveBooking()}>
                   Book
                 </button>
+                <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()}>
+                  {placingBet ? "Checking selection" : "Place play-money bet"}
+                </button>
               </>
-            ) : (
+            ) : slipView === "booking" ? (
               <>
                 <form className={styles.bookingForm} onSubmit={(event) => void loadBooking(event)}>
                   <label htmlFor="booking-code">Booking code</label>
@@ -760,6 +864,17 @@ export default function BettingDesk() {
                 {message ? <p className={styles.slipMessage} role="status">{message}</p> : null}
                 {error ? <p className={styles.slipError} role="alert">{error}</p> : null}
               </>
+            ) : (
+              <div className={styles.acceptedTicket}>
+                <span>Accepted ticket</span>
+                <strong>{acceptedBet?.id ?? "—"}</strong>
+                <dl>
+                  <div><dt>Stake</dt><dd>{acceptedBet?.stake ?? "0.00"}</dd></div>
+                  <div><dt>Combined odds</dt><dd>{acceptedBet?.totalOdds ?? "0.00"}</dd></div>
+                  <div><dt>Potential return</dt><dd>{acceptedBet?.potentialPayout ?? "0.00"}</dd></div>
+                </dl>
+                <Link href="/account">View account and wallet</Link>
+              </div>
             )}
           </div>
         </aside>
