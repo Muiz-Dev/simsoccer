@@ -15,8 +15,16 @@ export type Fixture = {
   awayScore: number;
   virtualSecond: number;
   clockUpdatedAt: string | null;
+  goalEvents?: GoalEvent[];
   homeTeam: Team | null;
   awayTeam: Team | null;
+};
+export type GoalEvent = {
+  sequence: number;
+  minute: number;
+  teamId: string | null;
+  playerName: string | null;
+  createdAt: string;
 };
 export type Standing = {
   position: number;
@@ -34,7 +42,7 @@ export type Standing = {
 };
 export type LeagueOverview = {
   league: { id: string; name: string; slug: string };
-  season: { id: string; name: string; currentRound: number; totalRounds: number } | null;
+  season: { id: string; name: string; seasonNumber?: number; currentRound: number; totalRounds: number } | null;
   standings: Standing[];
   roundFixtures: Fixture[];
   nextRoundFixtures: Fixture[];
@@ -44,6 +52,7 @@ export type WorldOverview = {
   generatedAt: string;
   world: { status: string; activeSeasonId: string | null; currentRound: number; totalRounds: number };
   leagues: LeagueOverview[];
+  availableSeasons: Array<{ seasonNumber: number; name: string; totalRounds: number }>;
 };
 
 type WorldDataValue = {

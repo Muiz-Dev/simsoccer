@@ -172,6 +172,57 @@
   line-height: 1.1;
 }
 
+.seasonSwitcher {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 5px;
+  background: #e8ebe8;
+}
+
+.seasonSwitcher button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.seasonSwitcher button[aria-pressed="true"] {
+  background: var(--pitch);
+  color: white;
+}
+
+.seasonSwitcher button:focus-visible,
+.roundNavigator button:focus-visible {
+  outline: 2px solid var(--pitch);
+  outline-offset: 2px;
+}
+
+.roundNavigator {
+  display: flex;
+  width: min(100%, 420px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.roundNavigator button {
+  color: var(--ink);
+}
+
+.roundNavigator button:disabled {
+  color: #aab1ac;
+}
+
 .count {
   color: var(--muted);
   font-size: 12px;
@@ -271,6 +322,99 @@
 
 .winner {
   font-weight: 700;
+}
+
+.teamGoalEvents {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.awayTeam .teamGoalEvents {
+  justify-items: start;
+}
+
+.teamGoalEvent {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.teamGoalEvent svg {
+  flex: 0 0 auto;
+  color: var(--pitch);
+  font-size: 12px;
+}
+
+.goalScorer {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.goalTicker {
+  position: fixed;
+  z-index: 5;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  min-height: 42px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: 0 max(18px, calc((100vw - 1220px) / 2));
+  border-top: 2px solid var(--pitch);
+  background: #202723;
+  color: #f5f7f5;
+}
+
+.goalTickerLabel {
+  color: #86d2a4;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.goalTickerViewport {
+  overflow: hidden;
+}
+
+.goalTickerTrack {
+  display: flex;
+  width: max-content;
+  animation: goal-ticker-scroll 42s linear infinite;
+}
+
+.goalTicker:hover .goalTickerTrack,
+.goalTicker:focus-within .goalTickerTrack {
+  animation-play-state: paused;
+}
+
+.goalTickerGroup {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 34px;
+  margin: 0;
+  padding: 0 34px 0 0;
+  list-style: none;
+}
+
+.goalTickerGroup li {
+  color: #f2c451;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@keyframes goal-ticker-scroll {
+  to { transform: translateX(-50%); }
 }
 
   .matchLine {
@@ -456,6 +600,25 @@
       font-size: 17px;
     }
 
+    .teamGoalEvents {
+      font-size: 9px;
+    }
+
+    .teamGoalEvent svg {
+      font-size: 11px;
+    }
+
+    .goalTicker {
+      min-height: 40px;
+      gap: 10px;
+      padding-inline: 12px;
+    }
+
+    .goalTickerLabel,
+    .goalTickerGroup li {
+      font-size: 10px;
+    }
+
     .table {
       font-size: 12px;
       table-layout: fixed;
@@ -546,5 +709,13 @@
   @media (prefers-reduced-motion: reduce) {
     .liveDot {
       animation: none;
+    }
+
+    .goalTickerTrack {
+      animation: none;
+    }
+
+    .goalTickerGroup[aria-hidden="true"] {
+      display: none;
     }
   }

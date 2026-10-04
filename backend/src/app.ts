@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
+import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
 import { authenticateJwt, requireLocalAccount, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
@@ -111,22 +111,47 @@ export function createApp() {
   });
 
   app.get('/api/world/overview', async (req: Request, res: Response) => {
-    const [world, activeLeagues] = await Promise.all([
+    const seasonNumberValue = req.query.seasonNumber;
+    const requestedSeasonNumber = seasonNumberValue === undefined ? undefined : Number(seasonNumberValue);
+    const roundValue = req.query.round;
+    const requestedRound = roundValue === undefined ? undefined : Number(roundValue);
+
+    if (
+      (requestedSeasonNumber !== undefined && (!Number.isInteger(requestedSeasonNumber) || requestedSeasonNumber < 1))
+      || (requestedRound !== undefined && (!Number.isInteger(requestedRound) || requestedRound < 1))
+    ) {
+      return res.status(400).json({ error: 'INVALID_OVERVIEW_QUERY', message: 'Season and round must be positive integers.' });
+    }
+
+    const [world, activeLeagues, allSeasons] = await Promise.all([
       getWorldStatusInfo(),
       db.select().from(leagues).where(eq(leagues.active, true)).orderBy(asc(leagues.name)),
+      db.select({ seasonNumber: seasons.seasonNumber, name: seasons.name, totalRounds: seasons.totalRounds })
+        .from(seasons)
+        .orderBy(desc(seasons.seasonNumber)),
     ]);
+    const availableSeasons = Array.from(
+      new Map(allSeasons.map((season) => [season.seasonNumber, season])).values(),
+    );
 
     const leagueOverviews = await Promise.all(activeLeagues.map(async (league) => {
+      const seasonConditions = [eq(seasons.leagueId, league.id)];
+      if (requestedSeasonNumber !== undefined) {
+        seasonConditions.push(eq(seasons.seasonNumber, requestedSeasonNumber));
+      } else {
+        seasonConditions.push(eq(seasons.status, 'ACTIVE'));
+      }
       const [season] = await db.select().from(seasons)
-        .where(and(eq(seasons.leagueId, league.id), eq(seasons.status, 'ACTIVE')))
+        .where(and(...seasonConditions))
         .limit(1);
 
       if (!season) {
         return { league, season: null, standings: [], roundFixtures: [], nextRoundFixtures: [], previousRoundFixtures: [] };
       }
 
-      const nextRound = season.currentRound < season.totalRounds ? season.currentRound + 1 : null;
-      const previousRound = season.currentRound > 1 ? season.currentRound - 1 : null;
+      const selectedRound = Math.min(requestedRound ?? season.currentRound, season.totalRounds);
+      const nextRound = selectedRound < season.totalRounds ? selectedRound + 1 : null;
+      const previousRound = selectedRound > 1 ? selectedRound - 1 : null;
       const nextRoundQuery = nextRound === null
         ? Promise.resolve([])
         : db.select().from(fixtures)
@@ -158,7 +183,7 @@ export function createApp() {
           .orderBy(desc(standings.points), desc(standings.goalDifference), desc(standings.goalsFor), asc(teams.name)),
         db.select().from(fixtures)
           .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.round, season.currentRound)))
-          .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id)),
+        .orderBy(asc(fixtures.scheduledAt), asc(fixtures.id)),
         nextRoundQuery,
         previousRoundQuery,
         db.select({ id: teams.id, name: teams.name, shortName: teams.shortName, slug: teams.slug })
@@ -169,17 +194,37 @@ export function createApp() {
       const teamById = new Map(leagueTeams.map((team) => [team.id, team]));
       const allVisibleFixtures = [...roundFixtures, ...nextRoundFixtures, ...previousRoundFixtures];
       const fixtureIds = allVisibleFixtures.map((fixture) => fixture.id);
-      const matchRows = fixtureIds.length === 0
-        ? []
-        : await db.select({
-          fixtureId: matches.fixtureId,
-          status: matches.status,
-          virtualSecond: matches.virtualSecond,
-          updatedAt: matches.updatedAt,
-        })
-          .from(matches)
-          .where(inArray(matches.fixtureId, fixtureIds));
+      const [matchRows, goalRows] = fixtureIds.length === 0
+        ? [[], []]
+        : await Promise.all([
+          db.select({
+            fixtureId: matches.fixtureId,
+            status: matches.status,
+            virtualSecond: matches.virtualSecond,
+            updatedAt: matches.updatedAt,
+          })
+            .from(matches)
+            .where(inArray(matches.fixtureId, fixtureIds)),
+          db.select({
+            fixtureId: matchEvents.fixtureId,
+            sequence: matchEvents.sequence,
+            virtualMinute: matchEvents.virtualMinute,
+            teamId: matchEvents.teamId,
+            playerName: players.name,
+            createdAt: matchEvents.createdAt,
+          })
+            .from(matchEvents)
+            .leftJoin(players, eq(matchEvents.playerId, players.id))
+            .where(and(inArray(matchEvents.fixtureId, fixtureIds), eq(matchEvents.eventType, 'GOAL')))
+            .orderBy(asc(matchEvents.sequence)),
+        ]);
       const matchByFixtureId = new Map(matchRows.map((match) => [match.fixtureId, match]));
+      const goalsByFixtureId = new Map<string, typeof goalRows>();
+      for (const goal of goalRows) {
+        const fixtureGoals = goalsByFixtureId.get(goal.fixtureId) ?? [];
+        fixtureGoals.push(goal);
+        goalsByFixtureId.set(goal.fixtureId, fixtureGoals);
+      }
 
       const formatFixture = (fixture: typeof fixtures.$inferSelect) => {
         const match = matchByFixtureId.get(fixture.id);
@@ -195,6 +240,13 @@ export function createApp() {
           awayScore: fixture.awayScore ?? 0,
           virtualSecond: match?.virtualSecond ?? 0,
           clockUpdatedAt: match?.updatedAt ?? null,
+          goalEvents: (goalsByFixtureId.get(fixture.id) ?? []).map((goal) => ({
+            sequence: goal.sequence,
+            minute: goal.virtualMinute,
+            teamId: goal.teamId,
+            playerName: goal.playerName,
+            createdAt: goal.createdAt,
+          })),
           homeTeam: teamById.get(fixture.homeTeamId) ?? null,
           awayTeam: teamById.get(fixture.awayTeamId) ?? null,
         };
@@ -216,7 +268,7 @@ export function createApp() {
       };
     }));
 
-    res.json({ generatedAt: new Date().toISOString(), world, leagues: leagueOverviews });
+    res.json({ generatedAt: new Date().toISOString(), world, leagues: leagueOverviews, availableSeasons });
   });
 
   app.post('/api/admin/login', adminLoginLimiter, requireAdminOrigin, async (req: Request, res: Response) => {

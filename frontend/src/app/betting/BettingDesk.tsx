@@ -216,6 +216,7 @@ export default function BettingDesk() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!mobileSlipOpen) return;
@@ -231,6 +232,14 @@ export default function BettingDesk() {
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [mobileSlipOpen]);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(Boolean(session?.user));
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     let stopped = false;
@@ -358,6 +367,11 @@ export default function BettingDesk() {
   }
 
   async function placeBet() {
+    if (!signedIn) {
+      router.push("/auth?next=/betting");
+      return;
+    }
+
     const stakeAmount = Number(stake);
     if (!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(stakeAmount) || stakeAmount <= 0) return;
     setError("");
@@ -828,20 +842,37 @@ export default function BettingDesk() {
                 {hasChangedPrice ? (
                   <button className={styles.secondaryAction} type="button" onClick={acceptCurrentPrices}>Accept current prices</button>
                 ) : null}
-                <label className={styles.stakeField}>
-                  Stake
-                  <span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="0.00" /><small>credits</small></span>
-                </label>
-                <div className={styles.oddsSummary}>
-                  <span>Potential return</span>
-                  <strong>{potentialReturn}</strong>
-                </div>
                 <button className={styles.primaryAction} type="button" disabled={!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice} onClick={() => void saveBooking()}>
                   Book
                 </button>
-                <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()}>
-                  {placingBet ? "Checking selection" : "Place play-money bet"}
-                </button>
+                {signedIn ? (
+                  <>
+                    <label className={styles.stakeField}>
+                      Stake
+                      <span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="0.00" /><small>credits</small></span>
+                    </label>
+                    <div className={styles.oddsSummary}>
+                      <span>Potential return</span>
+                      <strong>{potentialReturn}</strong>
+                    </div>
+                    <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()}>
+                      {placingBet ? "Checking selection" : "Place play-money bet"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className={styles.authPrompt} role="status">
+                      {signedIn === null
+                        ? "Checking sign-in…"
+                        : "Sign in to choose a stake and place a play-money bet."}
+                    </p>
+                    {signedIn === false ? (
+                      <Link className={styles.placeBetAction} href="/auth?next=/betting">
+                        Sign in to place a bet
+                      </Link>
+                    ) : null}
+                  </>
+                )}
               </>
             ) : slipView === "booking" ? (
               <>

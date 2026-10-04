@@ -692,6 +692,74 @@
   cursor: default;
 }
 
+.stakeField {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  color: #f5f7f5;
+  font-size: 13px;
+}
+
+.stakeField > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.stakeField input {
+  width: 112px;
+  min-height: 32px;
+  padding: 4px 7px;
+  border: 1px solid #727d75;
+  border-radius: 0;
+  background: #171b18;
+  color: white;
+  font: inherit;
+  font-size: 12px;
+}
+
+.stakeField small {
+  color: #c4ccc6;
+  font-size: 11px;
+}
+
+.placeBetAction {
+  display: grid;
+  width: 100%;
+  min-height: 39px;
+  margin-top: 8px;
+  place-items: center;
+  border: 0;
+  background: #16864f;
+  color: white;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.placeBetAction:hover:not(:disabled) {
+  background: #0f6d40;
+}
+
+.placeBetAction:disabled {
+  background: #47514a;
+  color: #aab2ac;
+  cursor: default;
+}
+
+.authPrompt {
+  margin: 11px 0 0;
+  color: #c4ccc6;
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .secondaryAction {
   border: 1px solid #657168;
   background: transparent;

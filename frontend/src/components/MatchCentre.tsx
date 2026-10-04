@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
@@ -11,6 +11,8 @@ import Skeleton from "@mui/material/Skeleton";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import Tooltip from "@mui/material/Tooltip";
+import NavigateBeforeIcon from "@mui/icons-material/NavigateBefore";
+import NavigateNextIcon from "@mui/icons-material/NavigateNext";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import FormatListNumberedIcon from "@mui/icons-material/FormatListNumbered";
 import HistoryIcon from "@mui/icons-material/History";
@@ -20,11 +22,12 @@ import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
 import AuthAction from "@/components/AuthAction";
 import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
-import type { Fixture, Standing } from "@/contexts/WorldDataContext";
+import type { Fixture, GoalEvent, Standing, WorldOverview } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
 import styles from "./MatchCentre.module.css";
 
 export type MatchCentreView = "live" | "fixtures" | "results" | "table";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 type NavItem = { href: string; label: string; icon: typeof LiveTvIcon };
 
@@ -49,6 +52,23 @@ function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNo
   const scheduled = !isLive && !isFinished;
   const homeName = fixture.homeTeam?.name ?? "Home team";
   const awayName = fixture.awayTeam?.name ?? "Away team";
+  const homeGoals = (fixture.goalEvents ?? []).filter((goal) => goal.teamId === fixture.homeTeam?.id);
+  const awayGoals = (fixture.goalEvents ?? []).filter((goal) => goal.teamId === fixture.awayTeam?.id);
+
+  function renderGoalEvents(goals: GoalEvent[]) {
+    if (!goals.length) return null;
+    return (
+      <span className={styles.teamGoalEvents} aria-label="Goals">
+        {goals.map((goal) => (
+          <span className={styles.teamGoalEvent} key={goal.sequence}>
+            <SportsSoccerIcon aria-hidden="true" />
+            <span>{goal.minute}&apos;</span>
+            {goal.playerName ? <span className={styles.goalScorer}>{goal.playerName}</span> : null}
+          </span>
+        ))}
+      </span>
+    );
+  }
 
   return (
     <div className={styles.matchRow}>
@@ -80,6 +100,7 @@ function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNo
         >
           <span className={styles.fullName}>{homeName}</span>
           <span className={styles.shortName}>{fixture.homeTeam?.shortName ?? homeName}</span>
+          {renderGoalEvents(homeGoals)}
         </span>
         {scheduled ? (
           <span className={styles.versus}>vs</span>
@@ -94,6 +115,7 @@ function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNo
         >
           <span className={styles.fullName}>{awayName}</span>
           <span className={styles.shortName}>{fixture.awayTeam?.shortName ?? awayName}</span>
+          {renderGoalEvents(awayGoals)}
         </span>
       </div>
     </div>
@@ -114,6 +136,28 @@ function MatchSkeletonList({ count = 5 }: { count?: number }) {
         </div>
       ))}
     </div>
+  );
+}
+
+function GoalTicker({ goals }: { goals: Array<{ id: string; text: string }> }) {
+  if (!goals.length) return null;
+
+  const items = (hidden: boolean) => (
+    <ul className={styles.goalTickerGroup} aria-hidden={hidden || undefined}>
+      {goals.map((goal) => <li key={goal.id}>{goal.text}</li>)}
+    </ul>
+  );
+
+  return (
+    <aside className={styles.goalTicker} aria-label="Latest live goals">
+      <span className={styles.goalTickerLabel}>Goal alerts</span>
+      <div className={styles.goalTickerViewport}>
+        <div className={styles.goalTickerTrack}>
+          {items(false)}
+          {items(true)}
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -220,7 +264,20 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
   const timeZone = useBrowserTimeZone();
   const pageRef = useRef<HTMLElement>(null);
   const animated = useRef(false);
-  const { overview, selectedLeague, selectedLeagueId, setSelectedLeagueId, refresh, error, serverNow } = useWorldData();
+  const {
+    overview,
+    selectedLeague: activeSelectedLeague,
+    selectedLeagueId,
+    setSelectedLeagueId,
+    refresh,
+    error,
+    serverNow,
+  } = useWorldData();
+  const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number | null>(null);
+  const [resultRound, setResultRound] = useState<number | null>(null);
+  const [seasonOverview, setSeasonOverview] = useState<WorldOverview | null>(null);
+  const [seasonLoading, setSeasonLoading] = useState(false);
+  const [seasonError, setSeasonError] = useState("");
 
   useGSAP(() => {
     if (animated.current || !pageRef.current) return;
@@ -233,6 +290,62 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
     return () => motion.revert();
   }, { scope: pageRef });
 
+  const activeSeasonNumber = overview?.leagues[0]?.season?.seasonNumber ?? null;
+
+  const effectiveSeasonNumber = selectedSeasonNumber ?? activeSeasonNumber;
+  const selectedSeasonInfo = overview?.availableSeasons.find((season) => season.seasonNumber === effectiveSeasonNumber);
+  const defaultResultRound = effectiveSeasonNumber === activeSeasonNumber
+    ? Math.max(1, (activeSelectedLeague?.season?.currentRound ?? 1) - 1)
+    : selectedSeasonInfo?.totalRounds ?? 1;
+  const requestedResultRound = resultRound ?? defaultResultRound;
+
+  useEffect(() => {
+    if (effectiveSeasonNumber === null || !API_URL || (view !== "results" && view !== "table")) return;
+
+    const controller = new AbortController();
+    const loadSeason = async () => {
+      setSeasonLoading(true);
+      setSeasonError("");
+      setSeasonOverview(null);
+      const query = new URLSearchParams({ seasonNumber: String(effectiveSeasonNumber) });
+      if (view === "results") query.set("round", String(requestedResultRound));
+      try {
+        const response = await fetch(`${API_URL}/api/world/overview?${query}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Season data returned HTTP ${response.status}.`);
+        const result = await response.json() as WorldOverview;
+        setSeasonOverview(result);
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          setSeasonError(cause instanceof Error ? cause.message : "Season data could not be loaded.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setSeasonLoading(false);
+      }
+    };
+
+    void loadSeason();
+    return () => controller.abort();
+  }, [effectiveSeasonNumber, requestedResultRound, view]);
+
+  const showingActiveSeason = effectiveSeasonNumber === activeSeasonNumber;
+  const displayOverview = seasonOverview
+    ?? (showingActiveSeason ? overview : null);
+  const selectedLeague = displayOverview?.leagues.find((league) => league.league.id === selectedLeagueId)
+    ?? displayOverview?.leagues[0]
+    ?? null;
+  const seasons = overview?.availableSeasons ?? [];
+  const previousSeasonNumber = seasons
+    .filter((season) => activeSeasonNumber !== null && season.seasonNumber < activeSeasonNumber)
+    .reduce<number | null>((previous, season) => previous === null || season.seasonNumber > previous ? season.seasonNumber : previous, null);
+  const currentSeasonName = seasons.find((season) => season.seasonNumber === activeSeasonNumber)?.name ?? "Current season";
+  const previousSeasonName = previousSeasonNumber === null
+    ? "Previous season"
+    : seasons.find((season) => season.seasonNumber === previousSeasonNumber)?.name ?? "Previous season";
+  const displayedSeasonName = selectedSeasonInfo?.name ?? currentSeasonName;
+  const displayedTotalRounds = selectedLeague?.season?.totalRounds ?? selectedSeasonInfo?.totalRounds ?? 38;
   const liveFixtures = (selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "LIVE");
   const currentRoundUpcoming = (selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED");
   const nextRoundUpcoming = (selectedLeague?.nextRoundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED");
@@ -240,14 +353,62 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
     .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
   const fixturesRound = upcomingFixtures[0]?.round ?? selectedLeague?.season?.currentRound ?? 0;
   const displayedRound = view === "fixtures" ? fixturesRound : selectedLeague?.season?.currentRound ?? 0;
-  const completedFixtures = (selectedLeague?.previousRoundFixtures ?? [])
-    .filter((fixture) => fixture.status === "FINISHED")
-    .sort((a, b) => Date.parse(b.scheduledAt) - Date.parse(a.scheduledAt));
-  const resultsRound = completedFixtures[0]?.round
-    ?? (selectedLeague?.season && selectedLeague.season.currentRound > 1 ? selectedLeague.season.currentRound - 1 : null);
-  const resultsFixtures = resultsRound === null
-    ? []
-    : completedFixtures.filter((fixture) => fixture.round === resultsRound);
+  const resultsRound = requestedResultRound;
+  const resultsFixtures = (selectedLeague?.roundFixtures ?? [])
+    .filter((fixture) => fixture.round === resultsRound && fixture.status === "FINISHED")
+    .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
+  const tickerGoals = (overview?.leagues ?? [])
+    .flatMap((league) => league.roundFixtures.flatMap((fixture) =>
+      fixture.status !== "LIVE"
+        ? []
+        : (fixture.goalEvents ?? []).flatMap((goal) => {
+          const scoringTeam = goal.teamId === fixture.homeTeam?.id
+            ? fixture.homeTeam?.shortName ?? fixture.homeTeam?.name
+            : goal.teamId === fixture.awayTeam?.id
+              ? fixture.awayTeam?.shortName ?? fixture.awayTeam?.name
+              : null;
+          if (!scoringTeam) return [];
+          const home = fixture.homeTeam?.shortName ?? fixture.homeTeam?.name ?? "Home";
+          const away = fixture.awayTeam?.shortName ?? fixture.awayTeam?.name ?? "Away";
+          return [{
+            id: `${fixture.id}-${goal.sequence}`,
+            createdAt: goal.createdAt,
+            text: `${goal.minute}' ${scoringTeam} goal · ${home} ${fixture.homeScore}–${fixture.awayScore} ${away}`,
+          }];
+        }),
+    ))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, 12);
+  const goalTickerItems = tickerGoals.map(({ id, text }) => ({ id, text }));
+
+  function selectSeason(seasonNumber: number) {
+    setSelectedSeasonNumber(seasonNumber);
+    setResultRound(null);
+  }
+
+  function renderSeasonSwitcher() {
+    if (!seasons.length || activeSeasonNumber === null || (view !== "results" && view !== "table")) return null;
+    return (
+      <div className={styles.seasonSwitcher} role="group" aria-label="Choose season">
+        {previousSeasonNumber !== null ? (
+          <button
+            type="button"
+            aria-pressed={effectiveSeasonNumber === previousSeasonNumber}
+            onClick={() => selectSeason(previousSeasonNumber)}
+          >
+            {previousSeasonName}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          aria-pressed={effectiveSeasonNumber === activeSeasonNumber}
+          onClick={() => selectSeason(activeSeasonNumber)}
+        >
+          {currentSeasonName}
+        </button>
+      </div>
+    );
+  }
 
   const viewTitle: Record<MatchCentreView, string> = {
     live: "Live scores",
@@ -309,7 +470,12 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
         </nav>
       ) : null}
 
-      {error ? <p className={styles.connectionError} role="status">Match data unavailable: {error}</p> : null}
+      {view !== "results" && view !== "table" && error
+        ? <p className={styles.connectionError} role="status">Match data unavailable: {error}</p>
+        : null}
+      {(view === "results" || view === "table") && seasonError
+        ? <p className={styles.connectionError} role="status">Season data unavailable: {seasonError}</p>
+        : null}
 
       <section className={styles.content} aria-label={viewTitle[view]}>
         {view === "live" ? (
@@ -344,11 +510,30 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           <>
             <div className={styles.sectionHeading} data-enter>
               <h2>{selectedLeague?.league.name ?? "Completed matches"}</h2>
+              {renderSeasonSwitcher()}
+              <div className={styles.roundNavigator} aria-label="Results round">
+                <IconButton
+                  aria-label="Previous round"
+                  disabled={resultsRound <= 1 || seasonLoading}
+                  onClick={() => setResultRound((round) => Math.max(1, (round ?? resultsRound) - 1))}
+                  size="small"
+                >
+                  <NavigateBeforeIcon />
+                </IconButton>
+                <span>{displayedSeasonName} · Round {resultsRound}</span>
+                <IconButton
+                  aria-label="Next round"
+                  disabled={resultsRound >= displayedTotalRounds || seasonLoading}
+                  onClick={() => setResultRound((round) => Math.min(displayedTotalRounds, (round ?? resultsRound) + 1))}
+                  size="small"
+                >
+                  <NavigateNextIcon />
+                </IconButton>
+              </div>
               <span className={styles.count}>Full-time results</span>
-              {resultsRound !== null ? <span className={styles.count}>Round {resultsRound}</span> : null}
             </div>
-            <ResultsList fixtures={resultsFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
-            {!overview && error ? <p className={styles.empty}>Results are unavailable. Use refresh to try again.</p> : null}
+            <ResultsList fixtures={resultsFixtures} serverNow={serverNow} loading={seasonLoading || !displayOverview} timeZone={timeZone} />
+            {!displayOverview && seasonError ? <p className={styles.empty}>Results are unavailable. Try selecting the season again.</p> : null}
           </>
         ) : null}
 
@@ -356,14 +541,17 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           <>
             <div className={styles.sectionHeading} data-enter>
               <h2>{selectedLeague?.league.name ?? "League table"}</h2>
+              {renderSeasonSwitcher()}
+              <span className={styles.count}>{displayedSeasonName} standings</span>
             </div>
-            {overview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : !error ? <StandingsSkeleton /> : (
+            {displayOverview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : seasonLoading ? <StandingsSkeleton /> : (
               <p className={styles.empty}>The table is unavailable. Use refresh to try again.</p>
             )}
           </>
         ) : null}
       </section>
 
+      {view === "live" ? <GoalTicker goals={goalTickerItems} /> : null}
     </main>
   );
 }
