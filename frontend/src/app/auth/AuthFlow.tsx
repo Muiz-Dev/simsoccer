@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ClipboardEvent, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -48,7 +48,6 @@ export default function AuthFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const codeInputs = useRef<Array<HTMLInputElement | null>>([]);
 
   function clearFeedback() {
     setError('');
@@ -173,8 +172,8 @@ export default function AuthFlow() {
   async function handleCodeVerification(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearFeedback();
-    if (!/^\d{6}$/.test(code)) {
-      setError('Enter all six digits from the email.');
+    if (!/^\d{8}$/.test(code)) {
+      setError('Enter the eight-digit code from the email.');
       return;
     }
     setBusy(true);
@@ -254,21 +253,6 @@ export default function AuthFlow() {
     }
   }
 
-  function setCodeDigit(index: number, value: string) {
-    const digit = value.replace(/\D/g, '').slice(-1);
-    const next = code.padEnd(6, ' ').split('');
-    next[index] = digit || ' ';
-    setCode(next.join('').replace(/ /g, ''));
-    if (digit && index < 5) codeInputs.current[index + 1]?.focus();
-  }
-
-  function pasteCode(event: ClipboardEvent<HTMLInputElement>) {
-    event.preventDefault();
-    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    setCode(pasted);
-    codeInputs.current[Math.min(pasted.length, 5)]?.focus();
-  }
-
   const codeStage = stage === 'signup-code' || stage === 'signin-code' || stage === 'recovery-code';
   const title = stage === 'signup' ? 'Create your account'
     : stage === 'signup-code' ? 'Verify your email'
@@ -296,7 +280,7 @@ export default function AuthFlow() {
           <p className={styles.introText}>
             {stage === 'signup' ? 'Create an account to keep your play-money wallet and tickets together.'
               : stage === 'profile' ? 'One last step before you return to the desk.'
-                : codeStage ? `Enter the six-digit code sent to ${email || 'your email address'}.`
+                : codeStage ? `Enter the code sent to ${email || 'your email address'}.`
                   : 'Sign in to manage your account and place play-money bets.'}
           </p>
         </div>
@@ -330,28 +314,20 @@ export default function AuthFlow() {
 
         {codeStage ? (
           <form className={styles.form} onSubmit={(event) => void handleCodeVerification(event)}>
-            <div className={styles.codeGrid} role="group" aria-label="Six-digit email code">
-              {Array.from({ length: 6 }, (_, index) => (
-                <input
-                  key={index}
-                  ref={(element) => { codeInputs.current[index] = element; }}
-                  aria-label={`Code digit ${index + 1}`}
-                  autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={1}
-                  value={code[index] ?? ''}
-                  onChange={(event) => setCodeDigit(index, event.target.value)}
-                  onPaste={pasteCode}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Backspace' && !code[index] && index > 0) codeInputs.current[index - 1]?.focus();
-                    if (event.key === 'ArrowLeft' && index > 0) codeInputs.current[index - 1]?.focus();
-                    if (event.key === 'ArrowRight' && index < 5) codeInputs.current[index + 1]?.focus();
-                  }}
-                />
-              ))}
-            </div>
-            <button className={styles.primary} type="submit" disabled={busy || code.length !== 6}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Checking code' : 'Verify code'}</button>
+            <label className={styles.codeField}>
+              Verification code
+              <input
+                aria-label="Eight-digit email verification code"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                required
+              />
+            </label>
+            <button className={styles.primary} type="submit" disabled={busy || !/^\d{8}$/.test(code)}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Checking code' : 'Verify code'}</button>
             <button className={styles.textAction} type="button" disabled={busy} onClick={() => void resendCode()}>Send a new code</button>
             <button className={styles.backAction} type="button" onClick={() => moveTo(stage === 'signup-code' ? 'signup' : stage === 'recovery-code' ? 'forgot' : 'signin')}>Use a different email</button>
           </form>

@@ -752,14 +752,6 @@
   cursor: default;
 }
 
-.authPrompt {
-  margin: 11px 0 0;
-  color: #c4ccc6;
-  font-size: 11px;
-  line-height: 1.45;
-  text-align: center;
-}
-
 .secondaryAction {
   border: 1px solid #657168;
   background: transparent;

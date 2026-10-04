@@ -196,18 +196,19 @@
   justify-content: flex-end;
 }
 
-.codeGrid {
+.codeField {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.codeGrid input {
+.codeField input {
   height: 52px !important;
-  padding: 0 !important;
   font-size: 22px !important;
   font-weight: 700 !important;
-  text-align: center;
+  letter-spacing: 0.18em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -292,8 +293,7 @@
   .shell { margin-top: 36px; }
   .intro h1 { font-size: 27px; }
   .form { gap: 13px; }
-  .codeGrid { gap: 6px; }
-  .codeGrid input { height: 48px !important; font-size: 20px !important; }
+  .codeField input { height: 48px !important; font-size: 20px !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {

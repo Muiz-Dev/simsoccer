@@ -324,37 +324,100 @@
   font-weight: 700;
 }
 
-.teamGoalEvents {
-  display: grid;
-  justify-items: end;
-  gap: 2px;
-  margin-top: 4px;
+.resultMatch {
+  border-bottom: 1px solid #e7ebe8;
+}
+
+.resultMatchToggle {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0 34px 0 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.resultMatchToggle:hover,
+.resultMatchToggle[aria-expanded="true"] {
+  background: #f6f8f6;
+}
+
+.resultMatchToggle:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--pitch);
+  outline-offset: -2px;
+}
+
+.resultMatchToggle .matchRow {
+  padding-inline: 10px 0;
+}
+
+.timelineChevron,
+.timelineChevronOpen {
+  position: absolute;
+  top: 50%;
+  right: 8px;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
+  transition: transform 160ms ease;
+  transform: translateY(-50%);
 }
 
-.awayTeam .teamGoalEvents {
-  justify-items: start;
+.timelineChevronOpen {
+  transform: translateY(-50%) rotate(180deg);
 }
 
-.teamGoalEvent {
-  display: inline-flex;
-  max-width: 100%;
+.goalTimeline {
+  display: grid;
+  gap: 0;
+  padding: 2px 18px 12px 112px;
+  border-top: 1px solid #e7ebe8;
+  background: #f8faf8;
+}
+
+.timelineEvent {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: 36px 18px minmax(0, auto) minmax(0, 1fr);
   align-items: center;
-  gap: 3px;
-  white-space: nowrap;
-}
-
-.teamGoalEvent svg {
-  flex: 0 0 auto;
-  color: var(--pitch);
+  gap: 8px;
+  border-bottom: 1px solid #e7ebe8;
   font-size: 12px;
 }
 
-.goalScorer {
+.timelineEvent:last-child {
+  border-bottom: 0;
+}
+
+.timelineMinute {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.timelineEvent svg {
+  color: var(--pitch);
+  font-size: 16px;
+}
+
+.timelineScorer {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.timelineTeam {
   overflow: hidden;
+  color: var(--muted);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noTimelineEvents {
+  margin: 0;
+  padding: 9px 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .goalTicker {
@@ -363,31 +426,24 @@
   right: 0;
   bottom: 0;
   left: 0;
-  display: grid;
+  display: block;
   min-height: 42px;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  padding: 0 max(18px, calc((100vw - 1220px) / 2));
+  padding: 0;
   border-top: 2px solid var(--pitch);
   background: #202723;
   color: #f5f7f5;
 }
 
-.goalTickerLabel {
-  color: #86d2a4;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
 .goalTickerViewport {
   overflow: hidden;
+  min-height: 40px;
 }
 
 .goalTickerTrack {
   display: flex;
   width: max-content;
+  min-height: 40px;
+  align-items: center;
   animation: goal-ticker-scroll 42s linear infinite;
 }
 
@@ -407,10 +463,23 @@
 }
 
 .goalTickerGroup li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #f2c451;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.goalTickerGroup li svg {
+  color: #86d2a4;
+  font-size: 14px;
+}
+
+.goalTickerGroup li strong {
+  color: #ffffff;
+  font-weight: 700;
 }
 
 @keyframes goal-ticker-scroll {
@@ -600,21 +669,10 @@
       font-size: 17px;
     }
 
-    .teamGoalEvents {
-      font-size: 9px;
+    .goalTimeline {
+      padding-left: 84px;
     }
 
-    .teamGoalEvent svg {
-      font-size: 11px;
-    }
-
-    .goalTicker {
-      min-height: 40px;
-      gap: 10px;
-      padding-inline: 12px;
-    }
-
-    .goalTickerLabel,
     .goalTickerGroup li {
       font-size: 10px;
     }
@@ -663,6 +721,10 @@
 
     .matchTime {
       font-size: 10px;
+    }
+
+    .goalTimeline {
+      padding-left: 61px;
     }
 
     .matchLine {
@@ -717,5 +779,10 @@
 
     .goalTickerGroup[aria-hidden="true"] {
       display: none;
+    }
+
+    .timelineChevron,
+    .timelineChevronOpen {
+      transition: none;
     }
   }

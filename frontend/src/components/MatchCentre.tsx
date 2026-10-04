@@ -13,6 +13,7 @@ import Tabs from "@mui/material/Tabs";
 import Tooltip from "@mui/material/Tooltip";
 import NavigateBeforeIcon from "@mui/icons-material/NavigateBefore";
 import NavigateNextIcon from "@mui/icons-material/NavigateNext";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import FormatListNumberedIcon from "@mui/icons-material/FormatListNumbered";
 import HistoryIcon from "@mui/icons-material/History";
@@ -22,7 +23,7 @@ import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
 import AuthAction from "@/components/AuthAction";
 import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
-import type { Fixture, GoalEvent, Standing, WorldOverview } from "@/contexts/WorldDataContext";
+import type { Fixture, Standing, WorldOverview } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
 import styles from "./MatchCentre.module.css";
 
@@ -38,7 +39,13 @@ const navigation: NavItem[] = [
   { href: "/table", label: "Table", icon: FormatListNumberedIcon },
 ];
 
-function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNow: number; timeZone: string }) {
+function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
+  fixture: Fixture;
+  serverNow: number;
+  timeZone: string;
+  timelineEnabled?: boolean;
+}) {
+  const [timelineOpen, setTimelineOpen] = useState(false);
   const isLive = fixture.status === "LIVE";
   const isFinished = fixture.status === "FINISHED";
   const startAt = fixture.startedAt ? Date.parse(fixture.startedAt) : Date.parse(fixture.scheduledAt);
@@ -52,25 +59,7 @@ function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNo
   const scheduled = !isLive && !isFinished;
   const homeName = fixture.homeTeam?.name ?? "Home team";
   const awayName = fixture.awayTeam?.name ?? "Away team";
-  const homeGoals = (fixture.goalEvents ?? []).filter((goal) => goal.teamId === fixture.homeTeam?.id);
-  const awayGoals = (fixture.goalEvents ?? []).filter((goal) => goal.teamId === fixture.awayTeam?.id);
-
-  function renderGoalEvents(goals: GoalEvent[]) {
-    if (!goals.length) return null;
-    return (
-      <span className={styles.teamGoalEvents} aria-label="Goals">
-        {goals.map((goal) => (
-          <span className={styles.teamGoalEvent} key={goal.sequence}>
-            <SportsSoccerIcon aria-hidden="true" />
-            <span>{goal.minute}&apos;</span>
-            {goal.playerName ? <span className={styles.goalScorer}>{goal.playerName}</span> : null}
-          </span>
-        ))}
-      </span>
-    );
-  }
-
-  return (
+  const matchRow = (
     <div className={styles.matchRow}>
       <div className={styles.matchTime}>
         {isFinished ? (
@@ -100,7 +89,6 @@ function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNo
         >
           <span className={styles.fullName}>{homeName}</span>
           <span className={styles.shortName}>{fixture.homeTeam?.shortName ?? homeName}</span>
-          {renderGoalEvents(homeGoals)}
         </span>
         {scheduled ? (
           <span className={styles.versus}>vs</span>
@@ -115,10 +103,44 @@ function MatchRow({ fixture, serverNow, timeZone }: { fixture: Fixture; serverNo
         >
           <span className={styles.fullName}>{awayName}</span>
           <span className={styles.shortName}>{fixture.awayTeam?.shortName ?? awayName}</span>
-          {renderGoalEvents(awayGoals)}
         </span>
       </div>
     </div>
+  );
+
+  if (!timelineEnabled) return matchRow;
+
+  const goals = [...(fixture.goalEvents ?? [])].sort((a, b) => a.sequence - b.sequence);
+  const timelineId = `timeline-${fixture.id}`;
+  return (
+    <article className={styles.resultMatch}>
+      <button
+        type="button"
+        className={styles.resultMatchToggle}
+        aria-expanded={timelineOpen}
+        aria-controls={timelineId}
+        aria-label={`${homeName} ${fixture.homeScore} to ${fixture.awayScore} ${awayName}. ${timelineOpen ? "Hide" : "Show"} match timeline.`}
+        onClick={() => setTimelineOpen((open) => !open)}
+      >
+        {matchRow}
+        <ExpandMoreIcon className={timelineOpen ? styles.timelineChevronOpen : styles.timelineChevron} aria-hidden="true" />
+      </button>
+      {timelineOpen ? (
+        <div className={styles.goalTimeline} id={timelineId}>
+          {goals.length ? goals.map((goal) => {
+            const teamName = goal.teamId === fixture.homeTeam?.id ? homeName : awayName;
+            return (
+              <div className={styles.timelineEvent} key={goal.sequence}>
+                <span className={styles.timelineMinute}>{goal.minute}&apos;</span>
+                <SportsSoccerIcon aria-hidden="true" />
+                <span className={styles.timelineScorer}>{goal.playerName ?? "Goal"}</span>
+                <span className={styles.timelineTeam}>{teamName}</span>
+              </div>
+            );
+          }) : <p className={styles.noTimelineEvents}>No goals in this match.</p>}
+        </div>
+      ) : null}
+    </article>
   );
 }
 
@@ -139,18 +161,24 @@ function MatchSkeletonList({ count = 5 }: { count?: number }) {
   );
 }
 
-function GoalTicker({ goals }: { goals: Array<{ id: string; text: string }> }) {
+function GoalTicker({ goals }: { goals: Array<{ id: string; minute: number; team: string; home: string; away: string; homeScore: number | null; awayScore: number | null }> }) {
   if (!goals.length) return null;
 
   const items = (hidden: boolean) => (
     <ul className={styles.goalTickerGroup} aria-hidden={hidden || undefined}>
-      {goals.map((goal) => <li key={goal.id}>{goal.text}</li>)}
+      {goals.map((goal) => (
+        <li key={goal.id}>
+          <SportsSoccerIcon aria-hidden="true" />
+          <span>{goal.minute}&apos;</span>
+          <strong>{goal.team}</strong>
+          <span>{goal.home} {goal.homeScore}–{goal.awayScore} {goal.away}</span>
+        </li>
+      ))}
     </ul>
   );
 
   return (
     <aside className={styles.goalTicker} aria-label="Latest live goals">
-      <span className={styles.goalTickerLabel}>Goal alerts</span>
       <div className={styles.goalTickerViewport}>
         <div className={styles.goalTickerTrack}>
           {items(false)}
@@ -253,7 +281,7 @@ function ResultsList({ fixtures, serverNow, loading, timeZone }: { fixtures: Fix
   return (
     <div className={styles.matchList}>
       {fixtures.map((fixture) => (
-        <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} />
+        <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} timelineEnabled />
       ))}
     </div>
   );
@@ -341,9 +369,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
     .filter((season) => activeSeasonNumber !== null && season.seasonNumber < activeSeasonNumber)
     .reduce<number | null>((previous, season) => previous === null || season.seasonNumber > previous ? season.seasonNumber : previous, null);
   const currentSeasonName = seasons.find((season) => season.seasonNumber === activeSeasonNumber)?.name ?? "Current season";
-  const previousSeasonName = previousSeasonNumber === null
-    ? "Previous season"
-    : seasons.find((season) => season.seasonNumber === previousSeasonNumber)?.name ?? "Previous season";
   const displayedSeasonName = selectedSeasonInfo?.name ?? currentSeasonName;
   const displayedTotalRounds = selectedLeague?.season?.totalRounds ?? selectedSeasonInfo?.totalRounds ?? 38;
   const liveFixtures = (selectedLeague?.roundFixtures ?? []).filter((fixture) => fixture.status === "LIVE");
@@ -373,13 +398,18 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           return [{
             id: `${fixture.id}-${goal.sequence}`,
             createdAt: goal.createdAt,
-            text: `${goal.minute}' ${scoringTeam} goal · ${home} ${fixture.homeScore}–${fixture.awayScore} ${away}`,
+            minute: goal.minute,
+            team: scoringTeam,
+            home,
+            away,
+            homeScore: fixture.homeScore,
+            awayScore: fixture.awayScore,
           }];
         }),
     ))
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
     .slice(0, 12);
-  const goalTickerItems = tickerGoals.map(({ id, text }) => ({ id, text }));
+  const goalTickerItems = tickerGoals;
 
   function selectSeason(seasonNumber: number) {
     setSelectedSeasonNumber(seasonNumber);
@@ -396,7 +426,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
             aria-pressed={effectiveSeasonNumber === previousSeasonNumber}
             onClick={() => selectSeason(previousSeasonNumber)}
           >
-            {previousSeasonName}
+            Previous season
           </button>
         ) : null}
         <button
@@ -404,7 +434,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           aria-pressed={effectiveSeasonNumber === activeSeasonNumber}
           onClick={() => selectSeason(activeSeasonNumber)}
         >
-          {currentSeasonName}
+          Current season
         </button>
       </div>
     );

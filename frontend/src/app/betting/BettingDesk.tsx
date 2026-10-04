@@ -861,11 +861,6 @@ export default function BettingDesk() {
                   </>
                 ) : (
                   <>
-                    <p className={styles.authPrompt} role="status">
-                      {signedIn === null
-                        ? "Checking sign-in…"
-                        : "Sign in to choose a stake and place a play-money bet."}
-                    </p>
                     {signedIn === false ? (
                       <Link className={styles.placeBetAction} href="/auth?next=/betting">
                         Sign in to place a bet
