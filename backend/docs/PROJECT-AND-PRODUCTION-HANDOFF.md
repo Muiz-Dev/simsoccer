@@ -2,8 +2,8 @@
 
 - **Snapshot date:** 2026-10-05
 - **Repository:** `Muiz-Dev/simsoccer`
-- **Local `main` revision checked:** `e7cf023`
-**EC2 checkout revision checked:** `aaea6a7`
+- **Feature release deployed:** `b8bcf7e`
+- **EC2 checkout revision checked:** `b8bcf7e`
 
 This is an operational snapshot of the project and its production environment.
 It supplements [DEPLOYMENT-HANDOFF.md](./DEPLOYMENT-HANDOFF.md), which contains
@@ -22,7 +22,7 @@ The project has three main applications:
 
 | Application | Location | Responsibility |
 |---|---|---|
-| Frontend | `frontend/` | Next.js website: live matches, fixtures, results, tables, betting UI, account/auth screens, and administration UI |
+| Frontend | `frontend/` | Next.js website: live matches, fixtures, results, tables, betting UI, My bets ticket history and lookup, account/auth screens, and administration UI |
 | World backend | `backend/` | Express API, PostgreSQL/Drizzle data, world coordinator, match simulation and background workers, betting and settlement |
 | Accounts API | `accounts-api/` | Express API for first-party registration, verification, sessions, profile, and account endpoints |
 
@@ -283,14 +283,39 @@ unverified.
 
 ## Source and deployed revision relationship
 
-At the start of this investigation, local `main` was `e7cf023`, while the EC2
-checkout reported `aaea6a7`. The updated EC2 checkout is now `279f55f`, which
-includes the Accounts API fix from `d7a308d`. The website and EC2 APIs deploy
-separately. The EC2 machine should not be pulled to the latest `main` just to
-publish a frontend-only change.
-Before a backend deployment, compare the planned commit's changed paths,
-review database migration requirements, take/verify a backup when needed,
-and follow the coordinated procedure in
+The My bets and secure ticket-lookup release was pushed to `main` and deployed
+to EC2 at `b8bcf7e`. The website deploys from `main` through Vercel; backend
+services deploy separately to EC2. The pre-release EC2 checkout was `279f55f`,
+which includes the Accounts API recovery fix from `d7a308d`.
+
+## My bets release verification — 2026-10-05
+
+- Release commit: `b8bcf7e` (`Add My bets ticket history and lookup`).
+- Database migration `0008_glamorous_mauler` is recorded. The `bets` table has
+  the nullable unique `public_ticket_code_hash` column. Existing tickets were
+  not assigned access codes; they remain available to their owners in signed-in
+  history, while signed-out lookup applies to new accepted tickets.
+- Before migration, a PostgreSQL custom-format backup was created and checked
+  with `pg_restore --list`. It is stored on EC2 at
+  `/home/ubuntu/simsoccer-backups/simsoccer-2026-10-05T08-05-48-053Z.dump`
+  (50,252,880 bytes; SHA-256
+  `98eb9b84587fbadc8c839d16295534176109363199e499c64f111cbcead93eb6`).
+- `simsoccer-runtime` and `simsoccer-accounts` were restarted and both reported
+  `online`. World health returned `ok`, Accounts API readiness returned
+  `ready` with PostgreSQL and Redis healthy, and the world reported `RUNNING`
+  at Season 2 Round 18.
+- `sudo nginx -t` passed. Public betting markets returned `200`; malformed or
+  unknown public ticket codes returned the uniform `404 TICKET_NOT_FOUND`
+  response. The Vercel `/bets` page returned `200` and served the ticket lookup
+  interface.
+- No environment variables changed for this feature; the protected EC2 `.env`
+  was not replaced. No world reset, database truncation, or production test bet
+  was performed. A real ticket code was not used for a public lookup smoke
+  test, to avoid exposing a user's bearer code.
+
+The website and EC2 APIs deploy separately. For later backend deployments,
+compare changed paths, review database migration requirements, take and verify
+a backup when needed, and follow the coordinated procedure in
 [DEPLOYMENT-HANDOFF.md](./DEPLOYMENT-HANDOFF.md).
 
 The existing deployment handoff contains older planning and validation
