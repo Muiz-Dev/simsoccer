@@ -821,6 +821,56 @@
   right: 8px;
 }
 
+.acceptedTicket {
+  display: grid;
+  gap: 18px;
+}
+
+.ticketReference {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ticketReference span {
+  color: #b7c0b9;
+  font-size: 11px;
+}
+
+.ticketReference strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.acceptedTicket dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.acceptedTicket dl > div {
+  display: grid;
+  gap: 3px;
+}
+
+.acceptedTicket dt {
+  color: #b7c0b9;
+  font-size: 12px;
+}
+
+.acceptedTicket dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.acceptedTicket > a {
+  width: fit-content;
+  color: #9de3b7;
+  font-size: 13px;
+  text-underline-offset: 3px;
+}
+
 .modalBackdrop {
   position: fixed;
   z-index: 10;

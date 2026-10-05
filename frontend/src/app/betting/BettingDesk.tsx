@@ -885,8 +885,10 @@ export default function BettingDesk() {
               </>
             ) : (
               <div className={styles.acceptedTicket}>
-                <span>Accepted ticket</span>
-                <strong>{acceptedBet?.id ?? "—"}</strong>
+                <div className={styles.ticketReference}>
+                  <span>Accepted ticket</span>
+                  <strong>{acceptedBet?.id ?? "—"}</strong>
+                </div>
                 <dl>
                   <div><dt>Stake</dt><dd>{acceptedBet?.stake ?? "0.00"}</dd></div>
                   <div><dt>Combined odds</dt><dd>{acceptedBet?.totalOdds ?? "0.00"}</dd></div>
