@@ -15,6 +15,7 @@ import Decimal from 'decimal.js';
 import { createHash } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { getRoundCutoffAt, normalizeTimestamp } from './round-market-policy';
+import { createTicketAccessCode, hashTicketAccessCode, isTicketAccessCode } from './ticket-access';
 
 const MAX_BET_SELECTIONS = 20;
 
@@ -29,6 +30,7 @@ export interface PlaceBetInput {
   selections: PlaceBetSelectionInput[];
   stake: string;
   idempotencyKey: string;
+  ticketCode?: string;
 }
 
 export function calculateAcceptedMultiple(stakeValue: string, oddsValues: string[]) {
@@ -43,7 +45,7 @@ export function calculateAcceptedMultiple(stakeValue: string, oddsValues: string
  * Places a play-money bet with atomic ACID ledger transaction, balance checks, and idempotency protection.
  */
 export async function placePlayMoneyBet(input: PlaceBetInput) {
-  const { userId, selections, stake, idempotencyKey } = input;
+  const { userId, selections, stake, idempotencyKey, ticketCode } = input;
   let stakeAmount: Decimal;
   try {
     stakeAmount = new Decimal(stake);
@@ -55,6 +57,10 @@ export async function placePlayMoneyBet(input: PlaceBetInput) {
   }
   if (!idempotencyKey || idempotencyKey.length > 200) {
     throw new Error('A valid idempotency key is required.');
+  }
+  const resolvedTicketCode = ticketCode ?? createTicketAccessCode();
+  if (!isTicketAccessCode(resolvedTicketCode)) {
+    throw new Error('A valid ticket code is required.');
   }
   if (selections.length === 0 || selections.length > MAX_BET_SELECTIONS) {
     throw new Error(`A bet must contain between 1 and ${MAX_BET_SELECTIONS} selections.`);
@@ -75,7 +81,13 @@ export async function placePlayMoneyBet(input: PlaceBetInput) {
     const [existingBet] = await tx.select().from(bets)
       .where(eq(bets.idempotencyKey, scopedIdempotencyKey))
       .limit(1);
-    if (existingBet) return existingBet;
+    if (existingBet) {
+      await tx.update(bets)
+        .set({ publicTicketCodeHash: hashTicketAccessCode(resolvedTicketCode) })
+        .where(eq(bets.id, existingBet.id));
+      const { publicTicketCodeHash: _oldCodeHash, ...safeBet } = existingBet;
+      return { ...safeBet, ticketCode: resolvedTicketCode };
+    }
 
     const selectedFixtures = await tx.select({
       id: fixtures.id,
@@ -167,6 +179,7 @@ export async function placePlayMoneyBet(input: PlaceBetInput) {
     const [newBet] = await tx.insert(bets).values({
       userId,
       idempotencyKey: scopedIdempotencyKey,
+      publicTicketCodeHash: hashTicketAccessCode(resolvedTicketCode),
       stake: stakeAmount.toFixed(2),
       totalOdds: totalOdds.toFixed(2),
       potentialPayout: potentialPayout.toFixed(2),
@@ -196,6 +209,7 @@ export async function placePlayMoneyBet(input: PlaceBetInput) {
       referenceId: newBet.id,
     });
 
-    return newBet;
+    const { publicTicketCodeHash: _codeHash, ...safeBet } = newBet;
+    return { ...safeBet, ticketCode: resolvedTicketCode };
   });
 }

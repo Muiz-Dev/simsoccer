@@ -17,7 +17,8 @@
     "admin:bootstrap": "tsx src/admin/bootstrap.ts",
     "migrate": "npm run db:migrate",
     "simulate:fixture": "tsx src/workers/enqueue-simulation.ts",
-    "test": "tsx src/tests/comprehensive-test.ts"
+    "test": "tsx src/tests/comprehensive-test.ts",
+    "test:ticket-access": "tsx src/tests/ticket-access.test.ts"
   },
   "keywords": [],
   "author": "",

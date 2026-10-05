@@ -1,8 +1,8 @@
 # SimSoccer Betting Space Architecture
 
-**Status:** Initial product and engineering specification  
-**Scope:** Pre-match market browsing, selection building, reusable booking codes, and the foundation for later authenticated play-money bet placement  
-**Out of scope for this phase:** In-play odds, cash-out, real-money gambling, deposits, and final account/wallet integration
+**Status:** Product and engineering specification; authenticated play-money placement and ticket history are implemented
+**Scope:** Pre-match market browsing, reusable booking codes, authenticated play-money bet placement, ticket history, settlement, and single-ticket lookup by access code
+**Out of scope:** In-play odds, cash-out, real-money gambling, and deposits
 
 ## 1. Product Boundary
 
@@ -15,9 +15,11 @@ The application can be organized as a modular monolith initially, but betting mu
 ## 2. Product Decisions Captured
 
 - The initial objective is play-money development. Real-money use would require a separate legal, payments, identity, fraud, and jurisdictional review.
-- Users may browse markets and build a slip without signing in. Placing a funded bet will require a signed-in account and an adequately funded wallet; this phase does not add that flow.
+- Users may browse markets and build a slip without signing in. Placing a play-money bet requires a signed-in account and an adequately funded wallet.
 - A **booking code** is a public, reusable reference to a not-yet-placed selection slip. It does not represent a wager, reserve odds, reserve a balance, or guarantee future availability.
 - A **bet slip ID** is created only after a bet is accepted. It identifies the persisted wager, its accepted odds, stake, potential return, and later settlement. Never label a booking code as a bet slip ID or coupon.
+- An accepted bet receives a separate 144-bit ticket access code. The browser generates it with the Web Crypto API, the API stores only its SHA-256 hash, and the receipt shows it once with a copy action. Anyone holding the code can read only that ticket's non-account details; lookup is rate-limited and returns the same not-found response for malformed and unknown codes. The code is distinct from both the booking code and the database bet ID.
+- Signed-in users can review their latest 100 tickets on `/bets`, separated into Open and Settled. Signed-out users can use the same page to look up one ticket by its access code. Bet placement remains account-only.
 - Selections can span the three leagues, provided they belong to the same shared world round.
 - The first multiple type is a straight accumulator: all selections must win. A slip can contain at most one selection per fixture in this phase. Same-fixture Bet Builder pricing is explicitly deferred.
 - Pre-match markets for a shared round close one minute before the earliest kickoff in that round. This is a server-side cutoff; a browser countdown is informational only.
@@ -35,6 +37,7 @@ The application can be organized as a modular monolith initially, but betting mu
 | Selection | A chosen outcome and its fixture/market identity. |
 | Booking slip | A saved, unplaced set of selections, retrievable by booking code. |
 | Bet / accepted ticket | A funded wager accepted by the server, with immutable accepted odds and stake. |
+| Ticket access code | A high-entropy bearer code for read-only lookup of one accepted ticket; it is not an account credential. |
 | Market settlement | The durable grading of market outcomes against a committed fixture result. |
 | Bet settlement | The payout/status calculation for an accepted ticket after its selections have market settlements. |
 | Suspension | A server-side state in which no new bet can be accepted against a market/round. |
@@ -265,11 +268,12 @@ The existing `/ws` is for match events. Either add a typed market subscription t
 3. Add bounded pre-match repricing using explicit, replayable inputs. Exposure adjustment waits until accepted bets exist.
 4. Publish committed price/status changes to WebSocket subscribers and test reconnect/version behavior.
 
-### Phase C: authenticated funded play-money placement
+### Phase C: authenticated funded play-money placement and ticket access (implemented)
 
-1. Complete sign-up/sign-in and wallet funding policy.
-2. Accept one straight multiple atomically, validate all current prices/cutoffs in the DB transaction, debit once, store all accepted legs and immutable odds, and return a bet slip ID.
-3. Add private ticket lookup/history, idempotency/race tests, and balance ledger reconciliation.
+1. Require a completed signed-in account and sufficient play-money wallet balance.
+2. Accept one straight multiple atomically, validate prices/cutoffs in the DB transaction, debit once, and store all accepted legs and immutable odds.
+3. Provide owner-scoped history/detail endpoints and a `/bets` screen with Open and Settled tabs.
+4. Issue a separate code for single-ticket public lookup; store only its hash, rate-limit lookup, and keep account, wallet, and other-ticket data out of the response.
 
 ### Phase D: durable market and ticket settlement
 

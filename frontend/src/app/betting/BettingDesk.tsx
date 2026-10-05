@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -119,8 +119,14 @@ type FixtureStatistics = {
 };
 
 type QuickMarket = { marketType: string; outcomeCode: string; label: string };
-type AcceptedBet = { id: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
+type AcceptedBet = { id: string; ticketCode: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+function createTicketCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  let binary = "";
+  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 const QUICK_MARKETS: QuickMarket[] = [
   { marketType: "1X2", outcomeCode: "1", label: "1" },
   { marketType: "1X2", outcomeCode: "X", label: "X" },
@@ -216,6 +222,8 @@ export default function BettingDesk() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const idempotencyKey = useRef<string | null>(null);
+  const ticketCode = useRef<string | null>(null);
 
   useEffect(() => {
     if (!mobileSlipOpen) return;
@@ -389,6 +397,10 @@ export default function BettingDesk() {
         return;
       }
       if (!API_URL) throw new Error("Betting is temporarily unavailable. Try again.");
+      const requestIdempotencyKey = idempotencyKey.current ?? crypto.randomUUID();
+      idempotencyKey.current = requestIdempotencyKey;
+      const requestTicketCode = ticketCode.current ?? createTicketCode();
+      ticketCode.current = requestTicketCode;
 
       const authHeaders = { Authorization: `Bearer ${token}` };
       const accountResponse = await fetch("/api/auth/account/me", { headers: authHeaders, cache: "no-store" });
@@ -404,10 +416,13 @@ export default function BettingDesk() {
         body: JSON.stringify({
           selections: resolvedSelections.map(({ fixtureId, marketId, outcomeCode }) => ({ fixtureId, marketId, outcomeCode })),
           stake: stakeAmount.toFixed(2),
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: requestIdempotencyKey,
+          ticketCode: requestTicketCode,
         }),
       });
       const accepted = await readApiResponse<AcceptedBet>(response, "Bet could not be accepted.");
+      idempotencyKey.current = null;
+      ticketCode.current = null;
       setAcceptedBet(accepted);
       setSavedCode("");
       setMessage("Bet accepted.");
@@ -476,6 +491,16 @@ export default function BettingDesk() {
       setMessage("Booking code copied.");
     } catch {
       setMessage("Select and copy the booking code.");
+    }
+  }
+
+  async function copyTicketCode() {
+    if (!acceptedBet?.ticketCode) return;
+    try {
+      await navigator.clipboard.writeText(acceptedBet.ticketCode);
+      setMessage("Ticket code copied.");
+    } catch {
+      setError("Copy failed. Select the ticket code and copy it manually.");
     }
   }
 
@@ -622,6 +647,7 @@ export default function BettingDesk() {
         </Link>
         <div className={styles.headerLinks}>
           <Link href="/">Match centre</Link>
+          <Link href="/bets">My bets</Link>
           <AuthAction />
           <span className={styles.worldState}>
             <span aria-hidden="true" />
@@ -886,15 +912,18 @@ export default function BettingDesk() {
             ) : (
               <div className={styles.acceptedTicket}>
                 <div className={styles.ticketReference}>
-                  <span>Accepted ticket</span>
-                  <strong>{acceptedBet?.id ?? "—"}</strong>
+                  <span>Ticket code · keep it private</span>
+                  <strong>{acceptedBet?.ticketCode ?? "—"}</strong>
+                  <button type="button" aria-label="Copy ticket code" title="Copy ticket code" onClick={() => void copyTicketCode()}>
+                    <ContentCopyIcon fontSize="small" />
+                  </button>
                 </div>
                 <dl>
                   <div><dt>Stake</dt><dd>{acceptedBet?.stake ?? "0.00"}</dd></div>
                   <div><dt>Combined odds</dt><dd>{acceptedBet?.totalOdds ?? "0.00"}</dd></div>
                   <div><dt>Potential return</dt><dd>{acceptedBet?.potentialPayout ?? "0.00"}</dd></div>
                 </dl>
-                <Link href="/account">View account and wallet</Link>
+                <Link href={`/bets#ticket-${acceptedBet?.id ?? ""}`}>View this ticket</Link>
               </div>
             )}
           </div>

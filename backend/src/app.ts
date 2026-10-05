@@ -5,11 +5,12 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
+import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
 import { authenticateJwt, requireLocalAccount, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
 import { getFixtureStatistics } from './betting/statistics-service';
+import { hashTicketAccessCode, isTicketAccessCode } from './betting/ticket-access';
 import { MatchEngine } from './simulation/match-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
 import { eq, and, asc, desc, inArray } from 'drizzle-orm';
@@ -25,6 +26,10 @@ const placeBetRequestSchema = z.object({
   }).strict()).min(1).max(20),
   stake: z.string().regex(/^\d{1,8}(?:\.\d{1,2})?$/),
   idempotencyKey: z.string().uuid(),
+  ticketCode: z.string().regex(/^[A-Za-z0-9_-]{24}$/).optional(),
+}).strict();
+const ticketLookupRequestSchema = z.object({
+  ticketCode: z.string().trim().max(24),
 }).strict();
 
 const adminAllowedOrigins = new Set(env.ADMIN_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
@@ -50,6 +55,67 @@ const bookingLookupLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many booking lookups. Try again later.' },
 });
+const ticketLookupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many ticket lookups. Try again later.' },
+});
+
+async function attachBetTicketDetails(betRows: Array<typeof bets.$inferSelect>) {
+  if (betRows.length === 0) return [];
+
+  const betIds = betRows.map((bet) => bet.id);
+  const selectionRows = await db.select().from(betSelections).where(inArray(betSelections.betId, betIds));
+  const fixtureIds = [...new Set(selectionRows.map((selection) => selection.fixtureId))];
+  const marketIds = [...new Set(selectionRows.map((selection) => selection.marketId))];
+  const [fixtureRows, marketRows, outcomeRows, settlementRows] = await Promise.all([
+    fixtureIds.length ? db.select().from(fixtures).where(inArray(fixtures.id, fixtureIds)) : Promise.resolve([]),
+    marketIds.length ? db.select().from(markets).where(inArray(markets.id, marketIds)) : Promise.resolve([]),
+    marketIds.length ? db.select().from(marketOutcomes).where(inArray(marketOutcomes.marketId, marketIds)) : Promise.resolve([]),
+    db.select().from(settlements).where(inArray(settlements.betId, betIds)),
+  ]);
+  const teamIds = [...new Set(fixtureRows.flatMap((fixture) => [fixture.homeTeamId, fixture.awayTeamId]))];
+  const teamRows = teamIds.length ? await db.select().from(teams).where(inArray(teams.id, teamIds)) : [];
+  const selectionsByBet = new Map<string, typeof selectionRows>();
+  for (const selection of selectionRows) {
+    const rows = selectionsByBet.get(selection.betId) ?? [];
+    rows.push(selection);
+    selectionsByBet.set(selection.betId, rows);
+  }
+  const fixturesById = new Map(fixtureRows.map((fixture) => [fixture.id, fixture]));
+  const teamsById = new Map(teamRows.map((team) => [team.id, team]));
+  const marketsById = new Map(marketRows.map((market) => [market.id, market]));
+  const outcomesByKey = new Map(outcomeRows.map((outcome) => [`${outcome.marketId}:${outcome.outcomeCode}`, outcome]));
+  const settlementsByBet = new Map(settlementRows.map((settlement) => [settlement.betId, settlement]));
+
+  return betRows.map(({ publicTicketCodeHash: _codeHash, ...bet }) => {
+    const settlement = settlementsByBet.get(bet.id);
+    return {
+      ...bet,
+      settlement: settlement ? { status: settlement.status, payoutAmount: settlement.payoutAmount } : null,
+      selections: (selectionsByBet.get(bet.id) ?? []).map((selection) => {
+        const fixture = fixturesById.get(selection.fixtureId);
+        const market = marketsById.get(selection.marketId);
+        const outcome = outcomesByKey.get(`${selection.marketId}:${selection.outcomeCode}`);
+        return {
+          ...selection,
+          marketType: market?.marketType ?? 'Market',
+          displayName: outcome?.displayName ?? selection.outcomeCode,
+          fixture: fixture ? {
+            scheduledAt: fixture.scheduledAt,
+            status: fixture.status,
+            homeScore: fixture.homeScore,
+            awayScore: fixture.awayScore,
+            homeTeam: teamsById.get(fixture.homeTeamId)?.name ?? 'Home team',
+            awayTeam: teamsById.get(fixture.awayTeamId)?.name ?? 'Away team',
+          } : null,
+        };
+      }),
+    };
+  });
+}
 
 function requireAdminOrigin(req: Request, res: Response, next: NextFunction) {
   const origin = req.get('Origin');
@@ -730,14 +796,7 @@ export function createApp() {
         .where(eq(bets.userId, req.user!.id))
         .orderBy(desc(bets.placedAt))
         .limit(100);
-      const betIds = userBets.map((bet) => bet.id);
-      const selections = betIds.length === 0
-        ? []
-        : await db.select().from(betSelections).where(inArray(betSelections.betId, betIds));
-      return res.json(userBets.map((bet) => ({
-        ...bet,
-        selections: selections.filter((selection) => selection.betId === bet.id),
-      })));
+      return res.json(await attachBetTicketDetails(userBets));
     } catch (error) {
       console.error('Bet history lookup failed:', error);
       return res.status(503).json({ error: 'BET_HISTORY_UNAVAILABLE', message: 'Bet history is temporarily unavailable.' });
@@ -750,11 +809,48 @@ export function createApp() {
         .where(and(eq(bets.id, req.params.betId as string), eq(bets.userId, req.user!.id)))
         .limit(1);
       if (!bet) return res.status(404).json({ error: 'BET_NOT_FOUND', message: 'Bet ticket was not found.' });
-      const selections = await db.select().from(betSelections).where(eq(betSelections.betId, bet.id));
-      return res.json({ ...bet, selections });
+      const [ticket] = await attachBetTicketDetails([bet]);
+      return res.json(ticket);
     } catch (error) {
       console.error('Bet ticket lookup failed:', error);
       return res.status(503).json({ error: 'BET_TICKET_UNAVAILABLE', message: 'Bet ticket is temporarily unavailable.' });
+    }
+  });
+
+  app.post('/api/bets/lookup', ticketLookupLimiter, async (req: Request, res: Response) => {
+    const parsed = ticketLookupRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success || !isTicketAccessCode(parsed.data.ticketCode)) {
+      return res.status(404).json({ error: 'TICKET_NOT_FOUND', message: 'Ticket code not found.' });
+    }
+
+    try {
+      const ticketCode = parsed.data.ticketCode;
+      const [bet] = await db.select().from(bets)
+        .where(eq(bets.publicTicketCodeHash, hashTicketAccessCode(ticketCode)))
+        .limit(1);
+      if (!bet) return res.status(404).json({ error: 'TICKET_NOT_FOUND', message: 'Ticket code not found.' });
+      const [ticket] = await attachBetTicketDetails([bet]);
+      const { stake, totalOdds, potentialPayout, status, placedAt, settledAt, settlement, selections } = ticket;
+      return res.json({
+        stake,
+        totalOdds,
+        potentialPayout,
+        status,
+        placedAt,
+        settledAt,
+        settlement,
+        selections: selections.map(({ outcomeCode, odds, status: selectionStatus, marketType, displayName, fixture }) => ({
+          outcomeCode,
+          odds,
+          status: selectionStatus,
+          marketType,
+          displayName,
+          fixture,
+        })),
+      });
+    } catch (error) {
+      console.error('Public ticket lookup failed:', error);
+      return res.status(503).json({ error: 'TICKET_LOOKUP_UNAVAILABLE', message: 'Ticket details are temporarily unavailable.' });
     }
   });
 

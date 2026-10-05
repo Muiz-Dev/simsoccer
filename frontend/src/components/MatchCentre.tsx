@@ -18,6 +18,7 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import FormatListNumberedIcon from "@mui/icons-material/FormatListNumbered";
 import HistoryIcon from "@mui/icons-material/History";
 import LiveTvIcon from "@mui/icons-material/LiveTv";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
@@ -37,6 +38,7 @@ const navigation: NavItem[] = [
   { href: "/fixtures", label: "Fixtures", icon: CalendarMonthIcon },
   { href: "/results", label: "Results", icon: HistoryIcon },
   { href: "/table", label: "Table", icon: FormatListNumberedIcon },
+  { href: "/bets", label: "My bets", icon: ReceiptLongIcon },
 ];
 
 function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {

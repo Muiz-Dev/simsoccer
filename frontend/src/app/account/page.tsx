@@ -191,6 +191,10 @@ export default function AccountPage() {
               <div><h2>Wallet</h2><p>Play-money credits have no cash value.</p></div>
               <strong>{account.wallet ? Number(account.wallet.balance).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00"}<span> credits</span></strong>
             </section>
+            <section className={styles.betHistory} aria-label="Bet tickets">
+              <div><h2>My bets</h2><p>Check open tickets and settled results.</p></div>
+              <Link href="/bets">View tickets</Link>
+            </section>
             <section className={styles.transactions} aria-labelledby="transactions-title">
               <div className={styles.sectionTitle}><h2 id="transactions-title">Recent activity</h2><Link href="/privacy">Privacy notice</Link></div>
               {transactions.length ? (

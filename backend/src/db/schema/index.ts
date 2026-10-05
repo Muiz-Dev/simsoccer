@@ -352,6 +352,7 @@ export const bets = pgTable('bets', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),
   idempotencyKey: text('idempotency_key').unique(),
+  publicTicketCodeHash: text('public_ticket_code_hash').unique(),
   stake: numeric('stake').notNull(),
   totalOdds: numeric('total_odds').notNull(),
   potentialPayout: numeric('potential_payout').notNull(),

@@ -57,6 +57,13 @@
       "when": 1791160405140,
       "tag": "0007_first_party_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791185937342,
+      "tag": "0008_glamorous_mauler",
+      "breakpoints": true
     }
   ]
 }

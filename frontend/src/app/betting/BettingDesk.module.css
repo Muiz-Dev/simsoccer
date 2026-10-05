@@ -827,9 +827,11 @@
 }
 
 .ticketReference {
+  position: relative;
   display: grid;
   gap: 5px;
   min-width: 0;
+  padding-right: 36px;
 }
 
 .ticketReference span {
@@ -841,6 +843,20 @@
   overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.4;
+}
+
+.ticketReference button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #9de3b7;
+  cursor: pointer;
 }
 
 .acceptedTicket dl {
