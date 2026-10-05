@@ -41,13 +41,16 @@ async function proxyAuthRequest(
 ) {
   if (!accountsApiUrl) {
     return Response.json(
-      { error: 'AUTH_UNAVAILABLE', message: 'Account services are not configured.' },
+      { error: 'AUTH_UNAVAILABLE', message: 'Sign-in is temporarily unavailable. Try again.' },
       { status: 503 },
     );
   }
 
   const { path } = await context.params;
   const routePath = path.join('/');
+  if (routePath === 'refresh' && request.method !== 'POST') {
+    return Response.json({ error: 'METHOD_NOT_ALLOWED', message: 'Sign in to refresh your session.' }, { status: 405 });
+  }
   const accountPath = accountPaths.get(routePath);
   if (accountPath && request.method !== accountPath.method) {
     return Response.json({ error: 'METHOD_NOT_ALLOWED' }, { status: 405 });
@@ -83,13 +86,33 @@ async function proxyAuthRequest(
     .filter((cookie): cookie is string => cookie !== null);
   if (forwardedCookies.length) headers.set('cookie', forwardedCookies.join('; '));
 
-  const upstream = await fetch(target, {
-    method: request.method,
-    headers,
-    body: request.method === 'GET' ? undefined : await request.arrayBuffer(),
-    cache: 'no-store',
-    redirect: 'manual',
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, {
+      method: request.method,
+      headers,
+      body: request.method === 'GET' ? undefined : await request.arrayBuffer(),
+      cache: 'no-store',
+      redirect: 'manual',
+    });
+  } catch (error) {
+    console.error('Accounts API proxy request failed.', {
+      path: routePath,
+      errorName: error instanceof Error ? error.name : typeof error,
+      ...(
+        typeof error === 'object'
+        && error !== null
+        && 'code' in error
+        && (typeof error.code === 'string' || typeof error.code === 'number')
+          ? { errorCode: error.code }
+          : {}
+      ),
+    });
+    return Response.json(
+      { error: 'AUTH_UNAVAILABLE', message: 'Sign-in is temporarily unavailable. Try again.' },
+      { status: 503 },
+    );
+  }
   const responseHeaders = new Headers();
   const responseType = upstream.headers.get('content-type');
   const cacheControl = upstream.headers.get('cache-control');

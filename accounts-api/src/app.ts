@@ -172,20 +172,29 @@ export function createApp() {
 
   app.get('/api/health/live', (_req, res) => res.json({ status: 'live', service: 'simsoccer-accounts' }));
   app.get('/api/health/ready', async (_req, res) => {
-    try {
-      await database`SELECT is_email_verified FROM users LIMIT 0`;
-      await database`SELECT family_id FROM auth_sessions LIMIT 0`;
-      if (env.NODE_ENV === 'production' && !redis) throw new Error('Redis unavailable.');
-      if (redis && await redis.ping() !== 'PONG') throw new Error('Redis unavailable.');
-      res.json({ status: 'ready' });
-    } catch {
-      res.status(503).json({ status: 'not_ready' });
-    }
+    const [databaseCheck, redisCheck] = await Promise.allSettled([
+      (async () => {
+        await database`SELECT is_email_verified FROM users LIMIT 0`;
+        await database`SELECT family_id FROM auth_sessions LIMIT 0`;
+      })(),
+      redis ? redis.ping().then((response) => response === 'PONG') : Promise.resolve(env.NODE_ENV !== 'production'),
+    ]);
+    const postgresReady = databaseCheck.status === 'fulfilled';
+    const redisReady = redisCheck.status === 'fulfilled' && redisCheck.value;
+    const ready = postgresReady && redisReady;
+    res.status(ready ? 200 : 503).json({
+      status: ready ? 'ready' : 'not_ready',
+      dependencies: { postgres: postgresReady, redis: redisReady },
+    });
   });
 
   app.get('/api/auth/.well-known/jwks.json', (_req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
     res.json(publicJwks());
+  });
+
+  app.get('/api/auth/refresh', (_req, res) => {
+    res.status(405).json({ error: 'METHOD_NOT_ALLOWED', message: 'Return to sign in to refresh your session.' });
   });
 
   app.post('/api/auth/signup', authLimiter, async (req, res) => {
@@ -406,15 +415,17 @@ export function createApp() {
   });
 
   app.use((error: unknown, req: Request, res: Response, _next: NextFunction) => {
+    const redisUnavailable = env.NODE_ENV === 'production' && (!redis || redis.status !== 'ready');
     console.error('Account API request failed.', {
       method: req.method,
       path: req.path,
+      redisStatus: redis?.status ?? 'missing',
       ...getErrorMetadata(error),
     });
-    const status = error instanceof AuthCapacityError ? error.status : 500;
+    const status = error instanceof AuthCapacityError ? error.status : redisUnavailable ? 503 : 500;
     res.status(status).json({
-      error: error instanceof AuthCapacityError ? 'AUTH_BUSY' : 'ACCOUNT_API_ERROR',
-      message: 'Account services are temporarily unavailable. Try again shortly.',
+      error: error instanceof AuthCapacityError ? 'AUTH_BUSY' : redisUnavailable ? 'AUTH_DEPENDENCY_UNAVAILABLE' : 'ACCOUNT_API_ERROR',
+      message: "We couldn't complete that. Try again.",
     });
   });
 

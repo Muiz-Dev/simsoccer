@@ -121,7 +121,6 @@ type FixtureStatistics = {
 type QuickMarket = { marketType: string; outcomeCode: string; label: string };
 type AcceptedBet = { id: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
-const ACCOUNTS_API_URL = (process.env.NEXT_PUBLIC_ACCOUNTS_API_URL ?? "").replace(/\/$/, "");
 const QUICK_MARKETS: QuickMarket[] = [
   { marketType: "1X2", outcomeCode: "1", label: "1" },
   { marketType: "1X2", outcomeCode: "X", label: "X" },
@@ -253,7 +252,7 @@ export default function BettingDesk() {
     const load = async () => {
       controller = new AbortController();
       try {
-        if (!API_URL) throw new Error("The market service is not configured.");
+        if (!API_URL) throw new Error("Markets are temporarily unavailable. Try again.");
         const query = round === null ? "" : `?round=${round}`;
         const response = await fetch(`${API_URL}/api/betting/markets${query}`, {
           cache: "no-store",
@@ -277,7 +276,9 @@ export default function BettingDesk() {
         setError("");
       } catch (cause) {
         if (!stopped && !(cause instanceof DOMException && cause.name === "AbortError")) {
-          setError(cause instanceof Error ? cause.message : "Markets could not be loaded.");
+          setError(cause instanceof TypeError
+            ? "Markets are temporarily unavailable. Check your connection and try again."
+            : cause instanceof Error ? cause.message : "Markets could not be loaded.");
         }
       } finally {
         if (!stopped) {
@@ -387,10 +388,10 @@ export default function BettingDesk() {
         router.push("/auth?next=/betting");
         return;
       }
-      if (!API_URL || !ACCOUNTS_API_URL) throw new Error("Betting services are not configured. Try again later.");
+      if (!API_URL) throw new Error("Betting is temporarily unavailable. Try again.");
 
       const authHeaders = { Authorization: `Bearer ${token}` };
-      const accountResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/me`, { headers: authHeaders, cache: "no-store" });
+      const accountResponse = await fetch("/api/auth/account/me", { headers: authHeaders, cache: "no-store" });
       const account = await readApiResponse<{ account: { profileComplete: boolean } }>(accountResponse, "Account details could not be loaded.");
       if (!account.account.profileComplete) {
         router.push("/auth?next=/betting");
