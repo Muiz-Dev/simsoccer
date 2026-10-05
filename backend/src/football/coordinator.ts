@@ -135,6 +135,7 @@ export async function checkDependenciesHealth(): Promise<{ postgres: boolean; re
       connectTimeout: 2000,
       maxRetriesPerRequest: 1,
       retryStrategy: () => null,
+      tls: env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     });
     const pong = await redisClient.ping();
     redisOk = (pong === 'PONG');
