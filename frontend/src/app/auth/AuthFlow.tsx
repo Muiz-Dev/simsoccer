@@ -26,6 +26,12 @@ function getReturnPath(): string {
   return next?.startsWith('/') && !next.startsWith('//') ? next : '/account';
 }
 
+function maskEmail(value: string): string {
+  const [localPart, domain] = value.trim().split('@');
+  if (!localPart || !domain) return 'your email';
+  return `${localPart[0]}${'•'.repeat(Math.max(3, Math.min(localPart.length - 1, 8)))}@${domain}`;
+}
+
 async function readAccountResponse(response: Response): Promise<AccountResponse> {
   const result = await response.json().catch(() => null);
   if (!response.ok || !result?.account) {
@@ -274,15 +280,12 @@ export default function AuthFlow() {
       </header>
 
       <section className={styles.shell} aria-labelledby="auth-title">
-        <div className={styles.intro}>
-          <p className={styles.eyebrow}>Your SimSoccer account</p>
+        <div className={`${styles.intro} ${stage === 'signin' ? styles.signInIntro : ''}`}>
           <h1 id="auth-title">{title}</h1>
-          <p className={styles.introText}>
-            {stage === 'signup' ? 'Create an account to keep your play-money wallet and tickets together.'
-              : stage === 'profile' ? 'One last step before you return to the desk.'
-                : codeStage ? `Enter the code sent to ${email || 'your email address'}.`
-                  : 'Sign in to manage your account and place play-money bets.'}
-          </p>
+          {stage === 'signup' ? <p className={styles.introText}>Create your account.</p>
+            : stage === 'profile' ? <p className={styles.introText}>Complete your profile.</p>
+              : codeStage ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
+                : null}
         </div>
 
         {stage === 'signin' || stage === 'signup' ? (
