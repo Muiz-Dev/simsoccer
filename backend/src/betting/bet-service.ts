@@ -9,6 +9,7 @@ import {
   seasons,
   wallets,
   walletTransactions,
+  users,
   worldRuntime,
 } from '../db/schema/index';
 import Decimal from 'decimal.js';
@@ -72,6 +73,17 @@ export async function placePlayMoneyBet(input: PlaceBetInput) {
 
   const scopedIdempotencyKey = createHash('sha256').update(`${userId}:${idempotencyKey}`).digest('hex');
   return db.transaction(async (tx) => {
+    const [account] = await tx.select({
+      accountStatus: users.accountStatus,
+      isEmailVerified: users.isEmailVerified,
+    }).from(users)
+      .where(eq(users.id, userId))
+      .for('update')
+      .limit(1);
+    if (!account?.isEmailVerified || account.accountStatus !== 'ACTIVE') {
+      throw new Error('This account is unavailable for betting.');
+    }
+
     const [wallet] = await tx.select().from(wallets)
       .where(eq(wallets.userId, userId))
       .for('update')

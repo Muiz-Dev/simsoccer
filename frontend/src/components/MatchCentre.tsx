@@ -504,10 +504,10 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
       ) : null}
 
       {view !== "results" && view !== "table" && error
-        ? <p className={styles.connectionError} role="status">Match data unavailable: {error}</p>
+        ? <p className={styles.connectionError} role="alert">Match data is temporarily unavailable. Try again.</p>
         : null}
       {(view === "results" || view === "table") && seasonError
-        ? <p className={styles.connectionError} role="status">Season data unavailable: {seasonError}</p>
+        ? <p className={styles.connectionError} role="alert">Season data is temporarily unavailable. Try again.</p>
         : null}
 
       <section className={styles.content} aria-label={viewTitle[view]}>
@@ -524,7 +524,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               ) : null}
             </div>
             {!overview && !error ? <MatchSkeletonList count={6} /> : null}
-            {!overview && error ? <p className={styles.empty}>Live scores are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
 
@@ -535,7 +534,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <span className={styles.count}>Kickoff times in {timeZone}</span>
             </div>
             <FixtureList fixtures={upcomingFixtures} serverNow={serverNow} loading={!overview && !error} timeZone={timeZone} />
-            {!overview && error ? <p className={styles.empty}>Fixtures are unavailable. Use refresh to try again.</p> : null}
           </>
         ) : null}
 
@@ -566,7 +564,6 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <span className={styles.count}>Full-time results</span>
             </div>
             <ResultsList fixtures={resultsFixtures} serverNow={serverNow} loading={seasonLoading || !displayOverview} timeZone={timeZone} />
-            {!displayOverview && seasonError ? <p className={styles.empty}>Results are unavailable. Try selecting the season again.</p> : null}
           </>
         ) : null}
 
@@ -577,7 +574,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               {renderSeasonSwitcher()}
               <span className={styles.count}>{displayedSeasonName} standings</span>
             </div>
-            {displayOverview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : seasonLoading ? <StandingsSkeleton /> : (
+            {displayOverview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : seasonLoading ? <StandingsSkeleton /> : seasonError ? null : (
               <p className={styles.empty}>The table is unavailable. Use refresh to try again.</p>
             )}
           </>

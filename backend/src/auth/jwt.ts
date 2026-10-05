@@ -83,8 +83,9 @@ export function authenticateJwt(req: AuthenticatedRequest, res: Response, next: 
     }
 
     try {
-      const [account] = await client<{ role: string; active: boolean }[]>`
+      const [account] = await client<{ role: string; active: boolean; account_status: string }[]>`
         SELECT u.role,
+               u.account_status,
                EXISTS (
                  SELECT 1 FROM auth_sessions
                  WHERE family_id = ${claims.sid}
@@ -98,6 +99,9 @@ export function authenticateJwt(req: AuthenticatedRequest, res: Response, next: 
       `;
       if (!account?.active) {
         return res.status(401).json({ error: 'SESSION_EXPIRED', message: 'Your session has expired. Sign in again.' });
+      }
+      if (account.account_status !== 'ACTIVE') {
+        return res.status(403).json({ error: 'ACCOUNT_SUSPENDED', message: 'This account is unavailable. Contact support for help.' });
       }
       req.user = {
         id: claims.sub,
@@ -131,7 +135,7 @@ export function requireLocalAccount(req: AuthenticatedRequest, res: Response, ne
 
   db.select({ id: users.id })
     .from(users)
-    .where(and(eq(users.id, req.user.id), eq(users.isEmailVerified, true)))
+    .where(and(eq(users.id, req.user.id), eq(users.isEmailVerified, true), eq(users.accountStatus, 'ACTIVE')))
     .limit(1)
     .then(([account]) => {
       if (!account) {

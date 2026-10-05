@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emailSchema, normalizeEmail, passwordSchema, profileSchema } from '../validation.js';
+import { emailSchema, normalizeEmail, passwordChangeCompleteSchema, passwordSchema, profileDetailsSchema, profileSchema } from '../validation.js';
 
 test('normalizes account email consistently', () => {
   assert.equal(normalizeEmail('  User@Example.COM '), 'user@example.com');
@@ -41,4 +41,29 @@ test('profile inputs do not allow clients to assign account roles', () => {
     privacyNoticeVersion: '2026-10-01',
     role: 'ADMIN',
   }).success, false);
+});
+
+test('profile detail updates do not rewrite terms acceptance or privacy notice state', () => {
+  assert.equal(profileDetailsSchema.safeParse({
+    firstName: 'Muiz',
+    lastName: 'Adesope',
+    phone: '+2348012345678',
+  }).success, true);
+  assert.equal(profileDetailsSchema.safeParse({
+    firstName: 'Muiz',
+    lastName: 'Adesope',
+    termsAccepted: true,
+    privacyNoticeVersion: 'current',
+  }).success, false);
+});
+
+test('password change confirmation requires a one-time code and strong new password', () => {
+  const valid = {
+    challengeId: 'a'.repeat(48),
+    code: '12345678',
+    newPassword: 'correct horse battery staple',
+  };
+  assert.equal(passwordChangeCompleteSchema.safeParse(valid).success, true);
+  assert.equal(passwordChangeCompleteSchema.safeParse({ ...valid, code: '1234' }).success, false);
+  assert.equal(passwordChangeCompleteSchema.safeParse({ ...valid, newPassword: 'short' }).success, false);
 });

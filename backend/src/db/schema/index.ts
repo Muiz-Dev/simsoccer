@@ -272,6 +272,10 @@ export const users = pgTable('users', {
   privacyNoticeVersion: text('privacy_notice_version'),
   termsAcceptedAt: timestamp('terms_accepted_at'),
   role: text('role').notNull().default('USER'), // USER, ADMIN, SUPER_ADMIN
+  accountStatus: text('account_status').notNull().default('ACTIVE'),
+  suspendedAt: timestamp('suspended_at'),
+  suspendedBy: text('suspended_by'),
+  anonymizedAt: timestamp('anonymized_at'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [

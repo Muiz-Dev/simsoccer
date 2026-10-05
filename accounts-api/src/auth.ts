@@ -31,12 +31,16 @@ export async function requireVerifiedIdentity(
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Sign in to continue.' });
       return;
     }
-    const [account] = await database<{ email: string; role: string; active: boolean }[]>`
-      SELECT email, role, is_email_verified AS active
+    const [account] = await database<{ email: string; role: string; active: boolean; account_status: string }[]>`
+      SELECT email, role, is_email_verified AS active, account_status
       FROM users WHERE id = ${payload.sub} LIMIT 1
     `;
     if (!account?.active) {
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Sign in to continue.' });
+      return;
+    }
+    if (account.account_status !== 'ACTIVE') {
+      res.status(403).json({ error: 'ACCOUNT_SUSPENDED', message: 'This account is unavailable. Contact support for help.' });
       return;
     }
     const [session] = await database<{ active: boolean }[]>`

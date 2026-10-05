@@ -5,14 +5,14 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { AuthCapacityError, changePassword, getAccount, authenticatePassword, completePasswordRecovery, createSession, listActiveSessions, register, requestPasswordless, requestPasswordRecovery, refreshSession, revokeAllSessions, revokeRefreshSession, revokeSessionFamily, verifyEmailChallenge, updateAccountProfile } from './auth-service.js';
+import { AuthCapacityError, changePassword, completePasswordChange, getAccount, authenticatePassword, completePasswordRecovery, createSession, listActiveSessions, register, requestPasswordChange, requestPasswordless, requestPasswordRecovery, refreshSession, revokeAllSessions, revokeRefreshSession, revokeSessionFamily, verifyEmailChallenge, updateAccountProfile, updateProfileDetails } from './auth-service.js';
 import { sendPasswordChangedNotice } from './auth-mailer.js';
 import { digestSecret, publicJwks } from './auth-crypto.js';
 import { requireVerifiedIdentity, type AuthenticatedRequest } from './auth.js';
 import { database } from './database.js';
 import { env } from './env.js';
 import { redis } from './redis.js';
-import { challengeSchema, emailSchema, passwordChangeSchema, passwordSchema, profileSchema } from './validation.js';
+import { challengeSchema, emailSchema, passwordChangeCompleteSchema, passwordChangeSchema, passwordSchema, profileDetailsSchema, profileSchema } from './validation.js';
 
 const allowedOrigins = new Set(env.APP_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
 
@@ -335,6 +335,49 @@ export function createApp() {
     res.json({ accessToken: session.accessToken, account: session.account, notificationSent });
   });
 
+  app.post('/api/auth/password/change/request', authLimiter, requireVerifiedIdentity, async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.identity) {
+      res.status(401).json({ error: 'UNAUTHORIZED', message: 'Sign in to continue.' });
+      return;
+    }
+    const challenge = await requestPasswordChange(req.identity.id);
+    if (!challenge) {
+      res.status(404).json({ error: 'ACCOUNT_NOT_FOUND', message: 'Sign in again to update your password.' });
+      return;
+    }
+    res.status(202).json({
+      challengeId: challenge.challengeId,
+      message: 'A confirmation code has been sent to your email.',
+    });
+  });
+
+  app.post('/api/auth/password/change/verify', authLimiter, requireVerifiedIdentity, async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = passwordChangeCompleteSchema.safeParse(req.body ?? {});
+    if (!parsed.success || !req.identity) {
+      res.status(400).json({ error: 'INVALID_PASSWORD_CHANGE', message: 'Enter the eight-digit code and a new password of at least 12 characters.' });
+      return;
+    }
+    const changedEmail = await completePasswordChange(
+      req.identity.id,
+      parsed.data.challengeId,
+      parsed.data.code,
+      parsed.data.newPassword,
+    );
+    if (!changedEmail) {
+      res.status(400).json({ error: 'CODE_INVALID_OR_EXPIRED', message: 'That code is invalid or expired. Request a new one.' });
+      return;
+    }
+    const notificationSent = await notifyPasswordChanged(changedEmail);
+    const session = await createSession(
+      req.identity.id,
+      requestCookie(req, deviceCookieName),
+      req.get('User-Agent'),
+      getClientIp(req),
+    );
+    setSessionCookies(res, session.refreshToken, session.deviceToken);
+    res.json({ accessToken: session.accessToken, account: session.account, notificationSent });
+  });
+
   app.post('/api/auth/refresh', refreshLimiter, async (req, res) => {
     const refreshToken = requestCookie(req, refreshCookieName);
     if (!refreshToken) {
@@ -407,6 +450,20 @@ export function createApp() {
       return;
     }
     const account = await updateAccountProfile(req.identity.id, parsed.data);
+    if (!account) {
+      res.status(404).json({ error: 'ACCOUNT_NOT_FOUND', message: 'Complete account setup to continue.' });
+      return;
+    }
+    res.json({ account });
+  });
+
+  app.patch('/api/account/profile/details', accountWriteLimiter, requireVerifiedIdentity, async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = profileDetailsSchema.safeParse(req.body ?? {});
+    if (!parsed.success || !req.identity) {
+      res.status(400).json({ error: 'INVALID_PROFILE', message: 'Enter your first and last name to continue.' });
+      return;
+    }
+    const account = await updateProfileDetails(req.identity.id, parsed.data);
     if (!account) {
       res.status(404).json({ error: 'ACCOUNT_NOT_FOUND', message: 'Complete account setup to continue.' });
       return;

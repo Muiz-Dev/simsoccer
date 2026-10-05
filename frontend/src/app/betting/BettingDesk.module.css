@@ -195,6 +195,16 @@
   text-align: right;
 }
 
+.cutoffSkeleton {
+  display: block;
+  width: 112px;
+  height: 11px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e4e9e5 25%, #f0f3f0 38%, #e4e9e5 62%);
+  background-size: 400% 100%;
+  animation: skeletonPulse 1.4s ease infinite;
+}
+
 .cutoffLabel small {
   color: #89938c;
   font-size: 10px;
@@ -385,35 +395,6 @@
   background: var(--desk-white);
 }
 
-.loadingLabel {
-  display: flex;
-  min-height: 43px;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--desk-rule);
-  color: var(--desk-muted);
-  font-size: 12px;
-}
-
-.loadingSpinner {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
-  place-items: center;
-  border: 2px solid #dce8df;
-  border-top-color: var(--desk-pitch);
-  border-right-color: var(--desk-pitch);
-  border-radius: 50%;
-  color: var(--desk-pitch-deep);
-  animation: loadingSpin 1s linear infinite;
-}
-
-.loadingSpinner svg {
-  font-size: 12px;
-}
-
 .skeletonFixtureList {
   background: var(--desk-white);
 }
@@ -468,12 +449,15 @@
   height: 34px;
 }
 
-@keyframes loadingSpin {
-  to { transform: rotate(360deg); }
-}
-
 @keyframes skeletonPulse {
   50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cutoffSkeleton,
+  .skeletonBlock {
+    animation: none;
+  }
 }
 
 .errorBanner,

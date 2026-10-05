@@ -279,8 +279,8 @@ export default function Home() {
       </nav>
 
       {loadError ? (
-        <p className={styles.connectionError} role="status">
-          Match data unavailable: {loadError}. Check EC2 inbound TCP 8080 and the API URL.
+        <p className={styles.connectionError} role="alert">
+          Match centre is unavailable. Try again in a moment.
         </p>
       ) : null}
 

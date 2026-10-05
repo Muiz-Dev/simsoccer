@@ -11,11 +11,21 @@ export const profileSchema = z.object({
   termsAccepted: z.literal(true),
   privacyNoticeVersion: z.string().trim().min(1).max(40),
 }).strict();
+export const profileDetailsSchema = z.object({
+  firstName: z.string().trim().min(1).max(80),
+  lastName: z.string().trim().min(1).max(80),
+  phone: z.string().trim().max(24).optional().or(z.literal('')),
+}).strict();
 
 export const emailSchema = z.string().trim().email().max(254).transform(normalizeEmail);
 export const passwordSchema = z.string().min(12).max(128);
 export const passwordChangeSchema = z.object({
   currentPassword: z.string().min(1).max(128),
+  newPassword: passwordSchema,
+}).strict();
+export const passwordChangeCompleteSchema = z.object({
+  challengeId: z.string().min(40).max(100),
+  code: z.string().regex(/^\d{8}$/),
   newPassword: passwordSchema,
 }).strict();
 export const challengeSchema = z.object({

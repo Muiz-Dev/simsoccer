@@ -1,11 +1,12 @@
 import express, { Request, Response, NextFunction } from 'express';
+import { randomUUID } from 'node:crypto';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
+import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, users, authSessions, authDevices, authChallenges, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
 import { authenticateJwt, requireLocalAccount, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
@@ -13,7 +14,7 @@ import { getFixtureStatistics } from './betting/statistics-service';
 import { hashTicketAccessCode, isTicketAccessCode } from './betting/ticket-access';
 import { MatchEngine } from './simulation/match-engine';
 import { checkDependenciesHealth, getWorldStatusInfo } from './football/coordinator';
-import { eq, and, asc, desc, inArray } from 'drizzle-orm';
+import { eq, and, asc, desc, inArray, ilike, or, isNull, gt, sql } from 'drizzle-orm';
 import { getPrimaryAdminCredential, verifyAdminPin, createAdminSessionToken, hashSessionToken, readAdminSessionTokenFromRequest, getAdminCookieOptions, resolveAdminSession, revokeAdminSession } from './admin/security';
 import { coerceLeagueInput, coerceTeamInput } from './admin/operations';
 import { z } from 'zod';
@@ -30,6 +31,14 @@ const placeBetRequestSchema = z.object({
 }).strict();
 const ticketLookupRequestSchema = z.object({
   ticketCode: z.string().trim().max(24),
+}).strict();
+const adminUserSearchSchema = z.object({
+  q: z.string().trim().max(200).optional().default(''),
+  page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).optional().default(20),
+}).strict();
+const adminUserStatusSchema = z.object({
+  action: z.enum(['suspend', 'restore']),
 }).strict();
 
 const adminAllowedOrigins = new Set(env.ADMIN_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
@@ -457,6 +466,249 @@ export function createApp() {
     } catch (error: any) {
       console.error('Admin summary failed:', error);
       res.status(503).json({ error: 'ADMIN_SUMMARY_UNAVAILABLE', message: error.message || 'Admin summary unavailable.' });
+    }
+  });
+
+  app.get('/api/admin/users', async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+    const parsed = adminUserSearchSchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID_USER_SEARCH', message: 'Enter a search term and valid page.' });
+    }
+    const { q, page, pageSize } = parsed.data;
+    const searchTerm = q ? `%${q.replace(/[\\%_]/g, '\\$&')}%` : '';
+    const conditions = searchTerm
+      ? [or(
+        ilike(users.email, searchTerm),
+        ilike(users.firstName, searchTerm),
+        ilike(users.lastName, searchTerm),
+        ...(z.string().uuid().safeParse(q).success ? [eq(users.id, q)] : []),
+      )!]
+      : [];
+    const where = conditions.length ? and(...conditions) : undefined;
+    try {
+      const [countRows, records] = await Promise.all([
+        db.select({ total: sql<number>`count(*)::int` }).from(users).where(where),
+        db.select({
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          accountStatus: users.accountStatus,
+          createdAt: users.createdAt,
+          walletBalance: wallets.balance,
+          currency: wallets.currency,
+        })
+          .from(users)
+          .leftJoin(wallets, eq(wallets.userId, users.id))
+          .where(where)
+          .orderBy(desc(users.createdAt), desc(users.id))
+          .limit(pageSize)
+          .offset((page - 1) * pageSize),
+      ]);
+      return res.json({
+        users: records,
+        page,
+        pageSize,
+        total: Number(countRows[0]?.total ?? 0),
+      });
+    } catch (error) {
+      console.error('Admin user search failed:', error);
+      return res.status(503).json({ error: 'ADMIN_USER_SEARCH_UNAVAILABLE', message: 'Accounts could not be loaded. Try again.' });
+    }
+  });
+
+  app.get('/api/admin/users/:userId', async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+    const userId = z.string().uuid().safeParse(req.params.userId);
+    if (!userId.success) return res.status(400).json({ error: 'INVALID_USER_ID', message: 'Choose a valid account.' });
+    try {
+      const [account] = await db.select({
+        id: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        phone: users.phone,
+        accountStatus: users.accountStatus,
+        createdAt: users.createdAt,
+        suspendedAt: users.suspendedAt,
+        anonymizedAt: users.anonymizedAt,
+        walletBalance: wallets.balance,
+        currency: wallets.currency,
+      })
+        .from(users)
+        .leftJoin(wallets, eq(wallets.userId, users.id))
+        .where(eq(users.id, userId.data))
+        .limit(1);
+      if (!account) return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'That account could not be found.' });
+
+      const [betCount, activeSessionCount, transactionCount, recentBets, recentTransactions] = await Promise.all([
+        db.select({ total: sql<number>`count(*)::int` }).from(bets).where(eq(bets.userId, account.id)),
+        db.select({ total: sql<number>`count(*)::int` }).from(authSessions)
+          .where(and(eq(authSessions.userId, account.id), isNull(authSessions.revokedAt), gt(authSessions.expiresAt, new Date()))),
+        db.select({ total: sql<number>`count(*)::int` }).from(walletTransactions)
+          .innerJoin(wallets, eq(walletTransactions.walletId, wallets.id))
+          .where(eq(wallets.userId, account.id)),
+        db.select({ id: bets.id, stake: bets.stake, status: bets.status, placedAt: bets.placedAt, settledAt: bets.settledAt })
+          .from(bets).where(eq(bets.userId, account.id)).orderBy(desc(bets.placedAt)).limit(10),
+        db.select({
+          id: walletTransactions.id,
+          type: walletTransactions.type,
+          amount: walletTransactions.amount,
+          balanceAfter: walletTransactions.balanceAfter,
+          createdAt: walletTransactions.createdAt,
+        })
+          .from(walletTransactions)
+          .innerJoin(wallets, eq(walletTransactions.walletId, wallets.id))
+          .where(eq(wallets.userId, account.id))
+          .orderBy(desc(walletTransactions.createdAt))
+          .limit(10),
+      ]);
+      return res.json({
+        account,
+        counts: {
+          bets: Number(betCount[0]?.total ?? 0),
+          activeSessions: Number(activeSessionCount[0]?.total ?? 0),
+          walletTransactions: Number(transactionCount[0]?.total ?? 0),
+        },
+        recentBets,
+        recentTransactions,
+      });
+    } catch (error) {
+      console.error('Admin user details failed:', error);
+      return res.status(503).json({ error: 'ADMIN_USER_DETAILS_UNAVAILABLE', message: 'Account details could not be loaded. Try again.' });
+    }
+  });
+
+  app.patch('/api/admin/users/:userId/status', requireAdminOrigin, async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+    const userId = z.string().uuid().safeParse(req.params.userId);
+    const parsed = adminUserStatusSchema.safeParse(req.body ?? {});
+    if (!userId.success || !parsed.success) {
+      return res.status(400).json({ error: 'INVALID_ACCOUNT_ACTION', message: 'Choose a valid account action.' });
+    }
+    try {
+      const account = await db.transaction(async (tx) => {
+        const [target] = await tx.select({
+          id: users.id,
+          email: users.email,
+          role: users.role,
+          accountStatus: users.accountStatus,
+        }).from(users).where(eq(users.id, userId.data)).for('update').limit(1);
+        if (!target) return { error: 'not_found' as const };
+        if (target.role !== 'USER' || target.accountStatus === 'ANONYMIZED') return { error: 'not_manageable' as const };
+        if (parsed.data.action === 'suspend' && target.accountStatus === 'SUSPENDED') return { error: 'already_suspended' as const };
+        if (parsed.data.action === 'restore' && target.accountStatus !== 'SUSPENDED') return { error: 'not_suspended' as const };
+
+        const now = new Date();
+        const suspended = parsed.data.action === 'suspend';
+        const [updated] = await tx.update(users).set({
+          accountStatus: suspended ? 'SUSPENDED' : 'ACTIVE',
+          suspendedAt: suspended ? now : null,
+          suspendedBy: suspended ? 'primary' : null,
+          updatedAt: now,
+        }).where(eq(users.id, target.id)).returning({
+          id: users.id,
+          email: users.email,
+          accountStatus: users.accountStatus,
+          suspendedAt: users.suspendedAt,
+        });
+        if (suspended) {
+          await tx.update(authSessions).set({ revokedAt: now })
+            .where(and(eq(authSessions.userId, target.id), isNull(authSessions.revokedAt)));
+          await tx.update(authDevices).set({ revokedAt: now })
+            .where(and(eq(authDevices.userId, target.id), isNull(authDevices.revokedAt)));
+          await tx.update(authChallenges).set({ consumedAt: now })
+            .where(and(eq(authChallenges.userId, target.id), isNull(authChallenges.consumedAt)));
+        }
+        await tx.insert(adminAuditLog).values({
+          actor: 'primary',
+          action: suspended ? 'user.suspend' : 'user.restore',
+          targetType: 'user',
+          targetId: target.id,
+          summary: suspended ? 'Customer account suspended.' : 'Customer account restored.',
+          metadata: {},
+        });
+        return { account: updated };
+      });
+      if ('error' in account) {
+        const status = account.error === 'not_found' ? 404 : 409;
+        const message = account.error === 'not_found' ? 'That account could not be found.'
+          : account.error === 'already_suspended' ? 'That account is already suspended.'
+            : account.error === 'not_suspended' ? 'That account is not suspended.'
+              : 'This account cannot be changed.';
+        return res.status(status).json({ error: 'ACCOUNT_ACTION_NOT_ALLOWED', message });
+      }
+      return res.json(account);
+    } catch (error) {
+      console.error('Admin account status update failed:', error);
+      return res.status(503).json({ error: 'ACCOUNT_ACTION_FAILED', message: 'The account could not be updated. Try again.' });
+    }
+  });
+
+  app.post('/api/admin/users/:userId/anonymize', requireAdminOrigin, async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+    const userId = z.string().uuid().safeParse(req.params.userId);
+    const confirmation = z.object({ confirmation: z.string().trim().min(10).max(300) }).strict().safeParse(req.body ?? {});
+    if (!userId.success || !confirmation.success) {
+      return res.status(400).json({ error: 'ANONYMIZATION_CONFIRMATION_REQUIRED', message: 'Confirm anonymization to continue.' });
+    }
+    try {
+      const outcome = await db.transaction(async (tx) => {
+        const [target] = await tx.select({
+          id: users.id,
+          email: users.email,
+          accountStatus: users.accountStatus,
+          role: users.role,
+        }).from(users).where(eq(users.id, userId.data)).for('update').limit(1);
+        if (!target) return 'not_found' as const;
+        if (target.role !== 'USER' || target.accountStatus !== 'SUSPENDED') return 'must_suspend' as const;
+        if (confirmation.data.confirmation !== `ANONYMIZE ${target.email}`) return 'confirmation_mismatch' as const;
+
+        const now = new Date();
+        await tx.update(authSessions).set({ revokedAt: now })
+          .where(and(eq(authSessions.userId, target.id), isNull(authSessions.revokedAt)));
+        await tx.update(authDevices).set({ revokedAt: now })
+          .where(and(eq(authDevices.userId, target.id), isNull(authDevices.revokedAt)));
+        await tx.update(bets).set({ publicTicketCodeHash: null }).where(eq(bets.userId, target.id));
+        await tx.update(users).set({
+          email: `anonymized+${target.id}+${randomUUID()}@invalid.simsoccer`,
+          authSubject: null,
+          passwordHash: null,
+          isEmailVerified: false,
+          firstName: null,
+          lastName: null,
+          phone: null,
+          privacyNoticeVersion: null,
+          termsAcceptedAt: null,
+          accountStatus: 'ANONYMIZED',
+          anonymizedAt: now,
+          updatedAt: now,
+        }).where(eq(users.id, target.id));
+        await tx.insert(adminAuditLog).values({
+          actor: 'primary',
+          action: 'user.anonymize',
+          targetType: 'user',
+          targetId: target.id,
+          summary: 'Customer account personal details anonymized; financial and betting history retained.',
+          metadata: { retained: ['wallet', 'wallet_transactions', 'bets', 'settlements'] },
+        });
+        await tx.delete(authSessions).where(eq(authSessions.userId, target.id));
+        await tx.delete(authDevices).where(eq(authDevices.userId, target.id));
+        await tx.delete(authChallenges).where(eq(authChallenges.userId, target.id));
+        return 'ok' as const;
+      });
+      if (outcome === 'not_found') return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'That account could not be found.' });
+      if (outcome === 'must_suspend') return res.status(409).json({ error: 'SUSPENSION_REQUIRED', message: 'Suspend this account before anonymizing it.' });
+      if (outcome === 'confirmation_mismatch') return res.status(400).json({ error: 'ANONYMIZATION_CONFIRMATION_MISMATCH', message: 'Type the account email confirmation exactly.' });
+      return res.json({ ok: true, message: 'Account details anonymized. Betting and wallet history were kept.' });
+    } catch (error) {
+      console.error('Admin account anonymization failed:', error);
+      return res.status(503).json({ error: 'ACCOUNT_ANONYMIZATION_FAILED', message: 'The account details could not be anonymized. Try again.' });
     }
   });
 

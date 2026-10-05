@@ -247,7 +247,11 @@ export default function BetsPage() {
               <button type="button" role="tab" aria-selected={tab === "OPEN"} onClick={() => setTab("OPEN")}>Open</button>
               <button type="button" role="tab" aria-selected={tab === "SETTLED"} onClick={() => setTab("SETTLED")}>Settled</button>
             </div>
-            {loadingHistory ? <p className={styles.loading} role="status"><span className={styles.spinner} /> Loading tickets</p> : null}
+            {loadingHistory ? (
+              <div className={styles.ticketSkeletons} role="status" aria-label="Loading tickets">
+                <span /><span /><span />
+              </div>
+            ) : null}
             {historyError ? <p className={styles.error} role="alert">{historyError}</p> : null}
             {!loadingHistory && !historyError && visibleTickets.length === 0 ? (
               <div className={styles.empty}>

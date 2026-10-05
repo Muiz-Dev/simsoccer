@@ -47,7 +47,7 @@ export type AuthUser = {
   phone: string | null;
 };
 
-export type ChallengePurpose = 'verify' | 'login' | 'passwordless' | 'recovery';
+export type ChallengePurpose = 'verify' | 'login' | 'passwordless' | 'recovery' | 'password_change';
 
 export type ChallengeResult = { challengeId: string };
 export type SessionResult = {
@@ -96,7 +96,8 @@ async function createChallenge(
     await tx`DELETE FROM auth_challenges WHERE expires_at < now() - interval '1 day'`;
   });
   const emailPurpose = purpose === 'verify' ? 'verify'
-    : purpose === 'recovery' ? 'recovery' : 'signin';
+    : purpose === 'recovery' ? 'recovery'
+      : purpose === 'password_change' ? 'security' : 'signin';
   if (sendEmail) {
     await sendAuthCode({
       to: email,
@@ -111,11 +112,11 @@ async function createChallenge(
 export async function register(email: string, password: string): Promise<ChallengeResult> {
   const passwordHash = await runPasswordWork(() => argon2.hash(password, passwordOptions));
   const user = await database.begin(async (tx) => {
-    const [existing] = await tx<{ id: string; role: string; is_email_verified: boolean }[]>`
-      SELECT id, role, is_email_verified FROM users WHERE lower(email) = ${email} LIMIT 1
+    const [existing] = await tx<{ id: string; role: string; is_email_verified: boolean; account_status: string }[]>`
+      SELECT id, role, is_email_verified, account_status FROM users WHERE lower(email) = ${email} LIMIT 1
     `;
     if (existing) {
-      if (existing.role === 'USER' && !existing.is_email_verified) {
+      if (existing.role === 'USER' && !existing.is_email_verified && existing.account_status === 'ACTIVE') {
         const [updated] = await tx<{ id: string }[]>`
           UPDATE users SET password_hash = COALESCE(password_hash, ${passwordHash}), updated_at = now()
           WHERE id = ${existing.id} RETURNING id
@@ -145,8 +146,8 @@ export async function authenticatePassword(email: string, password: string): Pro
   challenge: ChallengeResult | null;
   needsVerification: boolean;
 }> {
-  const [user] = await database<(AuthUser & { password_hash: string | null; is_email_verified: boolean })[]>`
-    SELECT id, email, role, first_name, last_name, phone, password_hash, is_email_verified
+  const [user] = await database<(AuthUser & { password_hash: string | null; is_email_verified: boolean; account_status: string })[]>`
+    SELECT id, email, role, first_name, last_name, phone, password_hash, is_email_verified, account_status
     FROM users WHERE lower(email) = ${email} LIMIT 1
   `;
   const passwordHash = user?.password_hash;
@@ -157,6 +158,9 @@ export async function authenticatePassword(email: string, password: string): Pro
   if (!await runPasswordWork(() => argon2.verify(passwordHash, password))) {
     return { challenge: null, needsVerification: false };
   }
+  if (user.account_status !== 'ACTIVE') {
+    return { challenge: null, needsVerification: false };
+  }
   if (!user.is_email_verified) {
     return { challenge: await createChallenge(email, 'verify', user.id), needsVerification: true };
   }
@@ -164,17 +168,19 @@ export async function authenticatePassword(email: string, password: string): Pro
 }
 
 export async function requestPasswordless(email: string): Promise<ChallengeResult> {
-  const [user] = await database<{ id: string; is_email_verified: boolean }[]>`
-    SELECT id, is_email_verified FROM users WHERE lower(email) = ${email} LIMIT 1
+  const [user] = await database<{ id: string; is_email_verified: boolean; account_status: string }[]>`
+    SELECT id, is_email_verified, account_status FROM users WHERE lower(email) = ${email} LIMIT 1
   `;
-  return createChallenge(email, 'passwordless', user?.is_email_verified ? user.id : null, Boolean(user?.is_email_verified));
+  const canSignIn = Boolean(user?.is_email_verified && user.account_status === 'ACTIVE');
+  return createChallenge(email, 'passwordless', canSignIn && user ? user.id : null, canSignIn);
 }
 
 export async function requestPasswordRecovery(email: string): Promise<ChallengeResult> {
-  const [user] = await database<{ id: string; is_email_verified: boolean }[]>`
-    SELECT id, is_email_verified FROM users WHERE lower(email) = ${email} LIMIT 1
+  const [user] = await database<{ id: string; is_email_verified: boolean; account_status: string }[]>`
+    SELECT id, is_email_verified, account_status FROM users WHERE lower(email) = ${email} LIMIT 1
   `;
-  return createChallenge(email, 'recovery', user?.is_email_verified ? user.id : null, Boolean(user?.is_email_verified));
+  const canRecover = Boolean(user?.is_email_verified && user.account_status === 'ACTIVE');
+  return createChallenge(email, 'recovery', canRecover && user ? user.id : null, canRecover);
 }
 
 async function consumeChallenge(challengeId: string, code: string, purposes: ChallengePurpose[]) {
@@ -217,7 +223,7 @@ async function consumeChallenge(challengeId: string, code: string, purposes: Cha
 async function loadUser(userId: string): Promise<AuthUser | null> {
   const [user] = await database<AuthUser[]>`
     SELECT id, email, role, first_name, last_name, phone
-    FROM users WHERE id = ${userId} AND is_email_verified = true LIMIT 1
+    FROM users WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE' LIMIT 1
   `;
   return user ?? null;
 }
@@ -250,6 +256,12 @@ export async function createSession(
   const deviceHash = digestSecret(deviceToken);
 
   const wallet = await database.begin(async (tx) => {
+    const [activeUser] = await tx<{ id: string }[]>`
+      SELECT id FROM users
+      WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE'
+      FOR UPDATE
+    `;
+    if (!activeUser) throw new Error('Account is unavailable for sign-in.');
     await tx`DELETE FROM auth_sessions WHERE expires_at < now() - interval '30 days'`;
     await tx`DELETE FROM auth_devices WHERE revoked_at < now() - interval '30 days' OR last_seen_at < now() - interval '180 days'`;
     await tx`
@@ -290,7 +302,7 @@ export async function verifyEmailChallenge(challengeId: string, code: string) {
   if (challenge.purpose === 'verify') {
     await database`
       UPDATE users SET is_email_verified = true, updated_at = now()
-      WHERE id = ${challenge.user_id}
+      WHERE id = ${challenge.user_id} AND account_status = 'ACTIVE'
     `;
   }
   const user = await loadUser(challenge.user_id);
@@ -324,11 +336,11 @@ export async function refreshSession(
     if (current.revoked_at || current.expires_at.getTime() <= Date.now()) {
       return { status: 'invalid' as const };
     }
-    const [user] = await tx<(AuthUser & { is_email_verified: boolean })[]>`
-      SELECT id, email, role, first_name, last_name, phone, is_email_verified
+    const [user] = await tx<(AuthUser & { is_email_verified: boolean; account_status: string })[]>`
+      SELECT id, email, role, first_name, last_name, phone, is_email_verified, account_status
       FROM users WHERE id = ${current.user_id} LIMIT 1
     `;
-    if (!user?.is_email_verified) return { status: 'invalid' as const };
+    if (!user?.is_email_verified || user.account_status !== 'ACTIVE') return { status: 'invalid' as const };
     await tx`UPDATE auth_sessions SET consumed_at = now(), last_used_at = now() WHERE id = ${current.id}`;
     await tx`
       INSERT INTO auth_sessions (user_id, family_id, device_id, refresh_token_hash, expires_at, user_agent_hash, ip_hash)
@@ -417,7 +429,7 @@ export async function completePasswordRecovery(challengeId: string, code: string
   const passwordHash = await runPasswordWork(() => argon2.hash(password, passwordOptions));
   await database`
     UPDATE users SET password_hash = ${passwordHash}, updated_at = now()
-    WHERE id = ${challenge.user_id} AND is_email_verified = true
+    WHERE id = ${challenge.user_id} AND is_email_verified = true AND account_status = 'ACTIVE'
   `;
   await database`
     UPDATE auth_sessions SET revoked_at = now()
@@ -428,16 +440,84 @@ export async function completePasswordRecovery(challengeId: string, code: string
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<string | null> {
   return database.begin(async (tx) => {
-    const [user] = await tx<{ password_hash: string | null; email: string }[]>`
-      SELECT password_hash, email FROM users WHERE id = ${userId} AND is_email_verified = true FOR UPDATE
+    const [user] = await tx<{ password_hash: string | null; email: string; account_status: string }[]>`
+      SELECT password_hash, email, account_status FROM users WHERE id = ${userId} AND is_email_verified = true FOR UPDATE
     `;
     const passwordHash = user?.password_hash;
-    if (!passwordHash || !await runPasswordWork(() => argon2.verify(passwordHash, currentPassword))) {
+    if (!passwordHash
+      || user.account_status !== 'ACTIVE'
+      || !await runPasswordWork(() => argon2.verify(passwordHash, currentPassword))) {
       return null;
     }
     const newHash = await runPasswordWork(() => argon2.hash(newPassword, passwordOptions));
     await tx`
       UPDATE users SET password_hash = ${newHash}, updated_at = now()
+      WHERE id = ${userId} AND account_status = 'ACTIVE'
+    `;
+    await tx`
+      UPDATE auth_sessions SET revoked_at = now()
+      WHERE user_id = ${userId} AND revoked_at IS NULL
+    `;
+    return user.email;
+  });
+}
+
+export async function requestPasswordChange(userId: string): Promise<ChallengeResult | null> {
+  const [user] = await database<{ email: string }[]>`
+    SELECT email FROM users WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE' LIMIT 1
+  `;
+  if (!user) return null;
+  return createChallenge(user.email, 'password_change', userId);
+}
+
+export async function completePasswordChange(
+  userId: string,
+  challengeId: string,
+  code: string,
+  newPassword: string,
+): Promise<string | null> {
+  const passwordHash = await runPasswordWork(() => argon2.hash(newPassword, passwordOptions));
+  return database.begin(async (tx) => {
+    const [user] = await tx<{ email: string }[]>`
+      SELECT email FROM users WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE' FOR UPDATE
+    `;
+    if (!user) return null;
+
+    const [challenge] = await tx<{
+      id: string;
+      user_id: string | null;
+      code_hash: string;
+      attempts: number;
+      expires_at: Date;
+      consumed_at: Date | null;
+    }[]>`
+      SELECT id, user_id, code_hash, attempts, expires_at, consumed_at
+      FROM auth_challenges
+      WHERE challenge_hash = ${digestSecret(challengeId)} AND purpose = 'password_change'
+      FOR UPDATE
+    `;
+    if (!challenge
+      || challenge.user_id !== userId
+      || challenge.consumed_at
+      || challenge.attempts >= 5
+      || challenge.expires_at.getTime() <= Date.now()) {
+      return null;
+    }
+
+    const codeHash = digestSecret(`${challengeId}:${code}`);
+    if (!hashesMatch(challenge.code_hash, codeHash)) {
+      const attempts = challenge.attempts + 1;
+      await tx`
+        UPDATE auth_challenges
+        SET attempts = ${attempts}, consumed_at = CASE WHEN ${attempts} >= 5 THEN now() ELSE consumed_at END
+        WHERE id = ${challenge.id}
+      `;
+      return null;
+    }
+
+    await tx`UPDATE auth_challenges SET consumed_at = now() WHERE id = ${challenge.id}`;
+    await tx`
+      UPDATE users SET password_hash = ${passwordHash}, updated_at = now()
       WHERE id = ${userId}
     `;
     await tx`
@@ -486,7 +566,24 @@ export async function updateAccountProfile(userId: string, profile: {
         privacy_notice_version = ${profile.privacyNoticeVersion},
         terms_accepted_at = now(),
         updated_at = now()
-    WHERE id = ${userId} AND is_email_verified = true
+    WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE'
+    RETURNING id
+  `;
+  return updated ? getAccount(userId) : null;
+}
+
+export async function updateProfileDetails(userId: string, profile: {
+  firstName: string;
+  lastName: string;
+  phone?: string;
+}) {
+  const [updated] = await database<{ id: string }[]>`
+    UPDATE users
+    SET first_name = ${profile.firstName},
+        last_name = ${profile.lastName},
+        phone = ${profile.phone || null},
+        updated_at = now()
+    WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE'
     RETURNING id
   `;
   return updated ? getAccount(userId) : null;

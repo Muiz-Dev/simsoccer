@@ -689,7 +689,8 @@ export default function BettingDesk() {
               <span className={styles.roundLabel}>{selectedFixtures[0]?.league?.name ?? "World fixtures"}</span>
             </div>
             <span className={styles.cutoffLabel}>
-              {cutoffSeconds !== null
+              {loading && !data ? <span className={styles.cutoffSkeleton} aria-hidden="true" />
+                : cutoffSeconds !== null
                 ? cutoffSeconds > 0
                   ? <>Closes in {formatTimeRemaining(cutoffSeconds)}<small>at {cutoff}</small></>
                   : `Closed at ${cutoff}`
@@ -711,13 +712,7 @@ export default function BettingDesk() {
 
           <div className={styles.fixtureList}>
             {loading && !data ? (
-              <div className={styles.loadingState} role="status" aria-live="polite">
-                <div className={styles.loadingLabel}>
-                  <span className={styles.loadingSpinner} aria-hidden="true">
-                    <SportsSoccerIcon />
-                  </span>
-                  <span>Loading fixtures and odds</span>
-                </div>
+              <div className={styles.loadingState} role="status" aria-label="Loading fixtures and odds">
                 <div className={styles.skeletonFixtureList} aria-hidden="true">
                   {Array.from({ length: 5 }, (_, index) => (
                     <div className={styles.skeletonFixture} key={index}>

@@ -23,6 +23,8 @@ const allowedPaths = new Set([
   'password-reset/request',
   'password-reset/complete',
   'password/change',
+  'password/change/request',
+  'password/change/verify',
   'refresh',
   'logout',
   'logout-all',
@@ -33,6 +35,7 @@ const allowedPaths = new Set([
 const accountPaths = new Map([
   ['account/me', { method: 'GET', target: '/api/account/me' }],
   ['account/profile', { method: 'PATCH', target: '/api/account/profile' }],
+  ['account/profile/details', { method: 'PATCH', target: '/api/account/profile/details' }],
 ]);
 
 async function proxyAuthRequest(

@@ -80,6 +80,27 @@ type AdminTeam = {
   }>;
 };
 
+type AdminUser = {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  accountStatus: "ACTIVE" | "SUSPENDED" | "ANONYMIZED";
+  createdAt: string;
+  walletBalance: string | null;
+  currency: string | null;
+};
+type AdminUserDetail = {
+  account: AdminUser & {
+    phone: string | null;
+    suspendedAt: string | null;
+    anonymizedAt: string | null;
+  };
+  counts: { bets: number; activeSessions: number; walletTransactions: number };
+  recentBets: Array<{ id: string; stake: string; status: string; placedAt: string; settledAt: string | null }>;
+  recentTransactions: Array<{ id: string; type: string; amount: string; balanceAfter: string; createdAt: string }>;
+};
+
 const emptyLeagueForm = (): LeagueForm => ({
   id: "",
   name: "",
@@ -108,6 +129,14 @@ export default function AdminPage() {
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [leagues, setLeagues] = useState<AdminLeague[]>([]);
   const [teams, setTeams] = useState<AdminTeam[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [userSearch, setUserSearch] = useState("");
+  const [userPage, setUserPage] = useState(1);
+  const [userTotal, setUserTotal] = useState(0);
+  const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
+  const [userActionBusy, setUserActionBusy] = useState(false);
+  const [anonymizeConfirmation, setAnonymizeConfirmation] = useState("");
+  const [userNotice, setUserNotice] = useState("");
   const [leagueForm, setLeagueForm] = useState<LeagueForm>(emptyLeagueForm());
   const [teamForm, setTeamForm] = useState<TeamForm>(emptyTeamForm());
   const [error, setError] = useState("");
@@ -152,14 +181,16 @@ export default function AdminPage() {
     setSummary(payload);
     setIsAuthenticated(true);
     setError("");
+    setUserNotice("");
   };
 
   const loadAdminData = async () => {
     if (!API_URL) return;
 
-    const [leaguesRes, teamsRes] = await Promise.all([
+    const [leaguesRes, teamsRes, usersRes] = await Promise.all([
       fetch(`${API_URL}/api/admin/leagues`, { credentials: "include", cache: "no-store" }),
       fetch(`${API_URL}/api/admin/teams`, { credentials: "include", cache: "no-store" }),
+      fetch(`${API_URL}/api/admin/users?page=1&pageSize=20`, { credentials: "include", cache: "no-store" }),
     ]);
 
     if (leaguesRes.ok) {
@@ -170,6 +201,87 @@ export default function AdminPage() {
     if (teamsRes.ok) {
       const teamRows = await teamsRes.json() as AdminTeam[];
       setTeams(teamRows);
+    }
+    if (usersRes.ok) {
+      const result = await usersRes.json() as { users: AdminUser[]; total: number };
+      setUsers(result.users);
+      setUserTotal(result.total);
+    } else {
+      const result = await usersRes.json().catch(() => ({}));
+      throw new Error(result.message || "Customer accounts could not be loaded.");
+    }
+  };
+
+  const searchUsers = async (query = userSearch, page = 1) => {
+    if (!API_URL) return;
+    const params = new URLSearchParams({ q: query, page: String(page), pageSize: "20" });
+    const response = await fetch(`${API_URL}/api/admin/users?${params}`, { credentials: "include", cache: "no-store" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || "Customer accounts could not be loaded.");
+    setUsers(result.users as AdminUser[]);
+    setUserTotal(result.total as number);
+    setUserPage(page);
+  };
+
+  const loadUserDetail = async (userId: string) => {
+    if (!API_URL) return;
+    setError("");
+    setAnonymizeConfirmation("");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(userId)}`, { credentials: "include", cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Account details could not be loaded.");
+      setSelectedUser(result as AdminUserDetail);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Account details could not be loaded.");
+    }
+  };
+
+  const changeUserStatus = async (action: "suspend" | "restore") => {
+    if (!API_URL || !selectedUser) return;
+    if (action === "suspend" && !window.confirm(`Suspend ${selectedUser.account.email}? Their signed-in sessions will be closed.`)) return;
+    setUserActionBusy(true);
+    setError("");
+    setUserNotice("");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(selectedUser.account.id)}/status`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "The account could not be updated.");
+      await Promise.all([searchUsers(userSearch, userPage), loadUserDetail(selectedUser.account.id), loadSummary()]);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The account could not be updated.");
+    } finally {
+      setUserActionBusy(false);
+    }
+  };
+
+  const anonymizeUser = async () => {
+    if (!API_URL || !selectedUser || anonymizeConfirmation !== `ANONYMIZE ${selectedUser.account.email}`) return;
+    setUserActionBusy(true);
+    setError("");
+    setUserNotice("");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/users/${encodeURIComponent(selectedUser.account.id)}/anonymize`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmation: anonymizeConfirmation }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || "Account details could not be anonymized.");
+      setSelectedUser(null);
+      setAnonymizeConfirmation("");
+      await Promise.all([searchUsers(userSearch, userPage), loadSummary()]);
+      setUserNotice(result.message || "Account details anonymized. Betting and wallet history were kept.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Account details could not be anonymized.");
+    } finally {
+      setUserActionBusy(false);
     }
   };
 
@@ -233,6 +345,8 @@ export default function AdminPage() {
     setSummary(null);
     setLeagues([]);
     setTeams([]);
+    setUsers([]);
+    setSelectedUser(null);
     setLeagueForm(emptyLeagueForm());
     setTeamForm(emptyTeamForm());
     setIsAuthenticated(false);
@@ -284,7 +398,7 @@ export default function AdminPage() {
   };
 
   if (isChecking) {
-    return <main className={styles.page}><p className={styles.loading} role="status">Checking admin session...</p></main>;
+    return <main className={styles.page}><div className={styles.adminLoading} role="status" aria-label="Checking admin session"><span /></div></main>;
   }
 
   if (!isAuthenticated) {
@@ -326,7 +440,7 @@ export default function AdminPage() {
             disabled={busy || pinDigits.some((digit) => !digit)}
             className={styles.primaryButton}
           >
-            {busy ? "Checking..." : "Unlock admin panel"}
+            {busy ? <span className={styles.buttonSpinner} aria-label="Checking" /> : "Unlock admin panel"}
           </button>
           {error ? <p className={styles.error} role="alert">{error}</p> : null}
         </section>
@@ -382,7 +496,7 @@ export default function AdminPage() {
               <input type="checkbox" checked={leagueForm.active} onChange={(e) => setLeagueForm({ ...leagueForm, active: e.target.checked })} />
               Active competition
             </label>
-            <button type="button" onClick={saveLeague} className={styles.primaryButton} disabled={busy}>{busy ? "Saving..." : "Save league"}</button>
+            <button type="button" onClick={saveLeague} className={styles.primaryButton} disabled={busy}>{busy ? <span className={styles.buttonSpinner} aria-label="Saving league" /> : "Save league"}</button>
           </div>
 
           <div className={styles.recordList}>
@@ -418,7 +532,7 @@ export default function AdminPage() {
               <input type="checkbox" checked={teamForm.active} onChange={(e) => setTeamForm({ ...teamForm, active: e.target.checked })} />
               Active team
             </label>
-            <button type="button" onClick={saveTeam} className={styles.primaryButton} disabled={busy}>{busy ? "Saving..." : "Save team"}</button>
+            <button type="button" onClick={saveTeam} className={styles.primaryButton} disabled={busy}>{busy ? <span className={styles.buttonSpinner} aria-label="Saving team" /> : "Save team"}</button>
           </div>
 
           <div className={styles.recordList}>
@@ -443,6 +557,92 @@ export default function AdminPage() {
           </div>
         </section>
       </div>
+
+      <section className={styles.userManagement} aria-labelledby="users-title">
+        <div className={styles.panelHeading}>
+          <div><h2 id="users-title">Customer accounts</h2><p>Find accounts, review activity, and manage access.</p></div>
+          <span>{userTotal}</span>
+        </div>
+        <form className={styles.userSearch} onSubmit={(event) => {
+          event.preventDefault();
+          void searchUsers(userSearch, 1).catch((cause) => setError(cause instanceof Error ? cause.message : "Customer accounts could not be loaded."));
+        }}>
+          <input
+            className={styles.field}
+            aria-label="Search customer accounts"
+            placeholder="Search by email, name, or account ID"
+            value={userSearch}
+            onChange={(event) => setUserSearch(event.target.value)}
+          />
+          <button className={styles.primaryButton} type="submit">Search</button>
+        </form>
+        <div className={styles.userWorkspace}>
+          <div>
+            <ul className={styles.userList}>
+              {users.length ? users.map((user) => (
+                <li key={user.id}>
+                  <button type="button" className={styles.userRecord} onClick={() => void loadUserDetail(user.id)}>
+                    <span className={styles.userRecordTop}>
+                      <strong>{[user.firstName, user.lastName].filter(Boolean).join(" ") || user.email}</strong>
+                      <span className={`${styles.statusBadge} ${styles[`status${user.accountStatus}`]}`}>{user.accountStatus.toLowerCase()}</span>
+                    </span>
+                    <span className={styles.recordMeta}>{user.email}</span>
+                    <span className={styles.recordMeta}>Joined {new Date(user.createdAt).toLocaleDateString()}</span>
+                  </button>
+                </li>
+              )) : <li className={styles.empty}>No accounts match this search.</li>}
+            </ul>
+            <div className={styles.pagination}>
+              <button type="button" className={styles.secondaryButton} disabled={userPage <= 1} onClick={() => void searchUsers(userSearch, userPage - 1).catch((cause) => setError(cause instanceof Error ? cause.message : "Accounts could not be loaded."))}>Previous</button>
+              <span>Page {userPage} of {Math.max(1, Math.ceil(userTotal / 20))}</span>
+              <button type="button" className={styles.secondaryButton} disabled={userPage >= Math.ceil(userTotal / 20)} onClick={() => void searchUsers(userSearch, userPage + 1).catch((cause) => setError(cause instanceof Error ? cause.message : "Accounts could not be loaded."))}>Next</button>
+            </div>
+          </div>
+          {selectedUser ? (
+            <article className={styles.userDetails} aria-labelledby="user-detail-title">
+              <div className={styles.detailHeading}>
+                <div>
+                  <h3 id="user-detail-title">{[selectedUser.account.firstName, selectedUser.account.lastName].filter(Boolean).join(" ") || "Customer account"}</h3>
+                  <p>{selectedUser.account.email}</p>
+                </div>
+                <button className={styles.textButton} type="button" onClick={() => { setSelectedUser(null); setAnonymizeConfirmation(""); }}>Close</button>
+              </div>
+              <dl className={styles.userFacts}>
+                <div><dt>Account ID</dt><dd>{selectedUser.account.id}</dd></div>
+                <div><dt>Phone</dt><dd>{selectedUser.account.phone || "Not provided"}</dd></div>
+                <div><dt>Status</dt><dd>{selectedUser.account.accountStatus.toLowerCase()}</dd></div>
+                <div><dt>Play-money balance</dt><dd>{selectedUser.account.walletBalance ?? "0.00"} {selectedUser.account.currency ?? "VIRTUAL"}</dd></div>
+                <div><dt>Tickets</dt><dd>{selectedUser.counts.bets}</dd></div>
+                <div><dt>Wallet entries</dt><dd>{selectedUser.counts.walletTransactions}</dd></div>
+                <div><dt>Active sessions</dt><dd>{selectedUser.counts.activeSessions}</dd></div>
+                <div><dt>Joined</dt><dd>{new Date(selectedUser.account.createdAt).toLocaleString()}</dd></div>
+              </dl>
+              <div className={styles.userActions}>
+                {selectedUser.account.accountStatus === "ACTIVE" ? (
+                  <button type="button" className={styles.warningButton} disabled={userActionBusy} onClick={() => void changeUserStatus("suspend")}>{userActionBusy ? <span className={styles.buttonSpinner} aria-label="Suspending account" /> : "Suspend account"}</button>
+                ) : selectedUser.account.accountStatus === "SUSPENDED" ? (
+                  <>
+                    <button type="button" className={styles.primaryButton} disabled={userActionBusy} onClick={() => void changeUserStatus("restore")}>{userActionBusy ? <span className={styles.buttonSpinner} aria-label="Restoring account" /> : "Restore account"}</button>
+                    <div className={styles.anonymizeBox}>
+                      <strong>Anonymize personal details</strong>
+                      <p>This cannot be undone. Bet and wallet history will remain.</p>
+                      <label>Type <code>ANONYMIZE {selectedUser.account.email}</code> to confirm
+                        <input className={styles.field} value={anonymizeConfirmation} onChange={(event) => setAnonymizeConfirmation(event.target.value)} />
+                      </label>
+                      <button type="button" className={styles.dangerButton} disabled={userActionBusy || anonymizeConfirmation !== `ANONYMIZE ${selectedUser.account.email}`} onClick={() => void anonymizeUser()}>{userActionBusy ? <span className={styles.buttonSpinner} aria-label="Anonymizing account" /> : "Anonymize account"}</button>
+                    </div>
+                  </>
+                ) : <p className={styles.empty}>Personal details have been anonymized. Betting and wallet records remain.</p>}
+              </div>
+              <h4 className={styles.detailSubhead}>Latest tickets</h4>
+              {selectedUser.recentBets.length ? <ul className={styles.activityList}>{selectedUser.recentBets.map((bet) => <li key={bet.id}><span>{bet.status.toLowerCase()} · {bet.stake} credits</span><time>{new Date(bet.placedAt).toLocaleString()}</time></li>)}</ul> : <p className={styles.empty}>No tickets.</p>}
+              <h4 className={styles.detailSubhead}>Latest wallet entries</h4>
+              {selectedUser.recentTransactions.length ? <ul className={styles.activityList}>{selectedUser.recentTransactions.map((transaction) => <li key={transaction.id}><span>{transaction.type.replace(/[_-]+/g, " ").toLowerCase()} · {transaction.amount}</span><time>{new Date(transaction.createdAt).toLocaleString()}</time></li>)}</ul> : <p className={styles.empty}>No wallet entries.</p>}
+            </article>
+          ) : <p className={styles.userDetailPlaceholder}>Select an account to view its activity and access controls.</p>}
+        </div>
+        {userNotice ? <p className={styles.success} role="status">{userNotice}</p> : null}
+      </section>
 
       {summary ? (
         <section className={styles.auditPanel} aria-labelledby="audit-title">

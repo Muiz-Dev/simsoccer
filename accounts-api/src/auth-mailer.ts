@@ -6,7 +6,7 @@ import { env } from './env.js';
 export async function sendAuthCode(input: {
   to: string;
   code: string;
-  purpose: 'verify' | 'signin' | 'recovery';
+  purpose: 'verify' | 'signin' | 'recovery' | 'security';
   idempotencyKey: string;
 }): Promise<void> {
   if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
@@ -24,6 +24,10 @@ export async function sendAuthCode(input: {
     recovery: {
       title: 'Reset your password',
       message: 'Enter this code in SimSoccer to reset your password.',
+    },
+    security: {
+      title: 'Confirm your password change',
+      message: 'Enter this code in SimSoccer to confirm your password change. It can only be used once.',
     },
   }[input.purpose];
   const resend = new Resend(env.RESEND_API_KEY);
