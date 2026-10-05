@@ -11,6 +11,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
+    "argon2": "^0.31.0",
+    "jose": "^5.1.0",
+    "uuid": "^9.0.0",
     "bullmq": "^6.3.10",
     "cors": "^2.8.6",
     "decimal.js": "^10.6.0",
