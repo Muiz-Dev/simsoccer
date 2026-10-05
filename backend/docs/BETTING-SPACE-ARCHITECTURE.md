@@ -69,6 +69,8 @@ fixtures scheduled
 
 Suspension is monotonic for a round: recovery must not reopen markets after the cutoff. Market preparation must happen early enough to make the markets useful; it should be triggered when the coordinator persists the next round schedule rather than being hidden inside an HTTP `GET`. The current `MARKET_PREPARATION_BUFFER_SECONDS` is a runtime tuning value and should not define the one-minute close rule.
 
+The betting desk switches to the next round as soon as its schedule is within the betting window and every scheduled fixture has persisted open market outcomes. Bet placement remains restricted to the current or next world round.
+
 The world coordinator may emit a durable round schedule/status fact. A betting lifecycle worker can consume that fact and create/suspend markets. The API remains a final guard even when workers are delayed. The initial deployment can supervise this worker alongside existing workers; it must not run market math inside the simulation event loop.
 
 ## 5. Market Pricing and Versioning

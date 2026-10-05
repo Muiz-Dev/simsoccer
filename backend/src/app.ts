@@ -37,6 +37,11 @@ const adminUserSearchSchema = z.object({
   page: z.coerce.number().int().min(1).max(100_000).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(50).optional().default(20),
 }).strict();
+const betHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100_000),
+  pageSize: z.coerce.number().int().min(1).max(50),
+  status: z.enum(['OPEN', 'SETTLED']),
+}).strict();
 const adminUserStatusSchema = z.object({
   action: z.enum(['suspend', 'restore']),
 }).strict();
@@ -1044,6 +1049,37 @@ export function createApp() {
 
   app.get('/api/bets', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
     try {
+      if (Object.keys(req.query).length > 0) {
+        const parsed = betHistoryQuerySchema.safeParse(req.query);
+        if (!parsed.success) {
+          return res.status(400).json({ error: 'INVALID_BET_HISTORY_QUERY', message: 'Check the requested bet history page.' });
+        }
+        const { page, pageSize, status } = parsed.data;
+        const statusFilter = status === 'OPEN'
+          ? eq(bets.status, 'PENDING')
+          : sql`${bets.status} <> 'PENDING'`;
+        const userFilter = and(eq(bets.userId, req.user!.id), statusFilter);
+        const [userBets, countResult, openCountResult] = await Promise.all([
+          db.select().from(bets)
+            .where(userFilter)
+            .orderBy(desc(bets.placedAt), desc(bets.id))
+            .limit(pageSize)
+            .offset((page - 1) * pageSize),
+          db.select({ total: sql<number>`count(*)::int` }).from(bets).where(userFilter),
+          db.select({ total: sql<number>`count(*)::int` }).from(bets)
+            .where(and(eq(bets.userId, req.user!.id), eq(bets.status, 'PENDING'))),
+        ]);
+        const total = countResult[0]?.total ?? 0;
+        return res.json({
+          tickets: await attachBetTicketDetails(userBets),
+          total,
+          openCount: openCountResult[0]?.total ?? 0,
+          page,
+          pageSize,
+          hasMore: page * pageSize < total,
+        });
+      }
+
       const userBets = await db.select().from(bets)
         .where(eq(bets.userId, req.user!.id))
         .orderBy(desc(bets.placedAt))

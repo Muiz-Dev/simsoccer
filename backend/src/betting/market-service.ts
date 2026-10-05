@@ -57,7 +57,7 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
       .where(and(inArray(fixtures.seasonId, activeSeasonIds), eq(fixtures.round, runtime.currentRound)));
   const nextRoundFixtures = runtime.currentRound >= runtime.totalRounds || activeSeasonIds.length === 0
     ? []
-    : await db.select({ scheduledAt: fixtures.scheduledAt, status: fixtures.status })
+    : await db.select({ id: fixtures.id, scheduledAt: fixtures.scheduledAt, status: fixtures.status })
       .from(fixtures)
       .where(and(inArray(fixtures.seasonId, activeSeasonIds), eq(fixtures.round, runtime.currentRound + 1)));
   const [clock] = await db.select({ now: sql<string>`now()` })
@@ -71,11 +71,28 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
   const nextRoundKickoffs = nextRoundFixtures
     .filter((fixture) => fixture.status === 'SCHEDULED')
     .map((fixture) => fixture.scheduledAt);
+  const scheduledNextRoundFixtureIds = nextRoundFixtures
+    .filter((fixture) => fixture.status === 'SCHEDULED')
+    .map((fixture) => fixture.id);
+  const openNextRoundMarketRows = scheduledNextRoundFixtureIds.length === 0
+    ? []
+    : await db.select({ fixtureId: markets.fixtureId })
+      .from(markets)
+      .innerJoin(marketOutcomes, eq(marketOutcomes.marketId, markets.id))
+      .where(and(
+        inArray(markets.fixtureId, scheduledNextRoundFixtureIds),
+        eq(markets.status, 'OPEN'),
+        eq(marketOutcomes.status, 'OPEN'),
+      ));
+  const fixturesWithOpenMarkets = new Set(openNextRoundMarketRows.map((row) => row.fixtureId));
+  const nextRoundMarketsReady = scheduledNextRoundFixtureIds.length > 0
+    && scheduledNextRoundFixtureIds.every((fixtureId) => fixturesWithOpenMarkets.has(fixtureId));
+  const nextRoundAvailable = nextRoundMarketsReady && isRoundMarketOpen(nextRoundKickoffs, serverNow);
   const currentRoundOpen = isRoundMarketOpen(currentRoundKickoffs, serverNow);
   const defaultRound = selectDefaultBettingRound(
     runtime.currentRound,
     currentRoundKickoffs,
-    nextRoundKickoffs,
+    nextRoundAvailable ? nextRoundKickoffs : [],
     serverNow,
   );
   const round = requestedRound ?? defaultRound;
@@ -138,7 +155,7 @@ export async function listBettingMarkets(requestedRound?: number, leagueId?: str
     totalRounds: runtime.totalRounds,
     currentRoundOpen,
     defaultRound,
-    nextRoundAvailable: isRoundMarketOpen(nextRoundKickoffs, serverNow),
+    nextRoundAvailable,
     serverNow,
     cutoffAt,
     fixtures: fixtureRows.map((fixture) => {

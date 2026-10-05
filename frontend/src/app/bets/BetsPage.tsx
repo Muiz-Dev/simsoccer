@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import SearchIcon from "@mui/icons-material/Search";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import AuthAction from "@/components/AuthAction";
@@ -39,10 +41,35 @@ type Ticket = {
   selections: TicketSelection[];
 };
 
+type TicketPage = {
+  tickets: Ticket[];
+  total: number;
+  openCount: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 function formatStatus(status: string) {
   return status.charAt(0) + status.slice(1).toLowerCase();
+}
+
+async function readTicketPage(token: string, status: "OPEN" | "SETTLED", page: number): Promise<TicketPage> {
+  if (!API_URL) throw new Error("Bet history is temporarily unavailable.");
+  const query = new URLSearchParams({ page: String(page), pageSize: "10", status });
+  const response = await fetch(`${API_URL}/api/bets?${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.message ?? "Your bet history could not be loaded.");
+  if (!payload || !Array.isArray(payload.tickets) || typeof payload.total !== "number"
+    || typeof payload.openCount !== "number" || typeof payload.hasMore !== "boolean") {
+    throw new Error("Bet history returned an unreadable response.");
+  }
+  return payload as TicketPage;
 }
 
 function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView?: boolean }) {
@@ -73,7 +100,19 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
               <span>{selection.marketType} · {selection.displayName}</span>
               <strong>{Number(selection.odds).toFixed(2)}</strong>
             </div>
-            <span className={`${styles.legStatus} ${styles[`status${selection.status}`] ?? ""}`}>{formatStatus(selection.status)}</span>
+            {selection.status === "WON" ? (
+              <span className={`${styles.legStatus} ${styles.legWon}`} role="img" aria-label="Won" title="Won">
+                <CheckCircleIcon aria-hidden="true" />
+              </span>
+            ) : selection.status === "LOST" ? (
+              <span className={`${styles.legStatus} ${styles.legLost}`} role="img" aria-label="Lost" title="Lost">
+                <HighlightOffIcon aria-hidden="true" />
+              </span>
+            ) : (
+              <span className={`${styles.legStatus} ${styles[`status${selection.status}`] ?? ""}`}>
+                {formatStatus(selection.status)}
+              </span>
+            )}
           </li>
         ))}
       </ol>
@@ -90,9 +129,15 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
 export default function BetsPage() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [openTicketCount, setOpenTicketCount] = useState(0);
+  const [ticketCount, setTicketCount] = useState(0);
+  const [hasMoreTickets, setHasMoreTickets] = useState(false);
+  const [nextTicketPage, setNextTicketPage] = useState(2);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [tab, setTab] = useState<"OPEN" | "SETTLED">("OPEN");
+  const historyRequestId = useRef(0);
   const [ticketCode, setTicketCode] = useState("");
   const [lookedUpCode, setLookedUpCode] = useState("");
   const [publicTicket, setPublicTicket] = useState<Ticket | null>(null);
@@ -108,16 +153,14 @@ export default function BetsPage() {
         if (!active) return;
         setSignedIn(Boolean(token));
         if (!token) return;
-        if (!API_URL) throw new Error("Bet history is temporarily unavailable.");
-        const response = await fetch(`${API_URL}/api/bets`, {
-          headers: { Authorization: `Bearer ${token}` },
-          cache: "no-store",
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !Array.isArray(payload)) {
-          throw new Error(payload?.message ?? "Your bet history could not be loaded.");
-        }
-        if (active) setTickets(payload as Ticket[]);
+        const requestId = ++historyRequestId.current;
+        const result = await readTicketPage(token, "OPEN", 1);
+        if (!active || requestId !== historyRequestId.current) return;
+        setTickets(result.tickets);
+        setTicketCount(result.total);
+        setOpenTicketCount(result.openCount);
+        setHasMoreTickets(result.hasMore);
+        setNextTicketPage(2);
       } catch (cause) {
         if (active) setHistoryError(cause instanceof Error ? cause.message : "Your bet history could not be loaded.");
       } finally {
@@ -125,7 +168,10 @@ export default function BetsPage() {
       }
     }
     void loadHistory();
-    return () => { active = false; };
+    return () => {
+      active = false;
+      historyRequestId.current += 1;
+    };
   }, []);
 
   useEffect(() => {
@@ -168,7 +214,58 @@ export default function BetsPage() {
     }
   }
 
-  const visibleTickets = tickets.filter((ticket) => tab === "OPEN" ? ticket.status === "PENDING" : ticket.status !== "PENDING");
+  async function changeTicketTab(nextTab: "OPEN" | "SETTLED") {
+    if (nextTab === tab || loadingHistory) return;
+    setLoadingMore(false);
+    setTab(nextTab);
+    setTickets([]);
+    setTicketCount(0);
+    setHasMoreTickets(false);
+    setHistoryError("");
+    setLoadingHistory(true);
+    const requestId = ++historyRequestId.current;
+    try {
+      const token = await restoreAccessToken();
+      if (!token) throw new Error("Sign in again to view your tickets.");
+      const result = await readTicketPage(token, nextTab, 1);
+      if (requestId !== historyRequestId.current) return;
+      setTickets(result.tickets);
+      setTicketCount(result.total);
+      setOpenTicketCount(result.openCount);
+      setHasMoreTickets(result.hasMore);
+      setNextTicketPage(2);
+    } catch (cause) {
+      if (requestId === historyRequestId.current) {
+        setHistoryError(cause instanceof Error ? cause.message : "Your bet history could not be loaded.");
+      }
+    } finally {
+      if (requestId === historyRequestId.current) setLoadingHistory(false);
+    }
+  }
+
+  async function loadMoreTickets() {
+    if (loadingMore || loadingHistory || !hasMoreTickets) return;
+    setLoadingMore(true);
+    setHistoryError("");
+    const requestId = ++historyRequestId.current;
+    try {
+      const token = await restoreAccessToken();
+      if (!token) throw new Error("Sign in again to view your tickets.");
+      const result = await readTicketPage(token, tab, nextTicketPage);
+      if (requestId !== historyRequestId.current) return;
+      setTickets((current) => [...current, ...result.tickets]);
+      setTicketCount(result.total);
+      setOpenTicketCount(result.openCount);
+      setHasMoreTickets(result.hasMore);
+      setNextTicketPage((current) => current + 1);
+    } catch (cause) {
+      if (requestId === historyRequestId.current) {
+        setHistoryError(cause instanceof Error ? cause.message : "More tickets could not be loaded.");
+      }
+    } finally {
+      if (requestId === historyRequestId.current) setLoadingMore(false);
+    }
+  }
 
   return (
     <main className={styles.page}>
@@ -190,52 +287,54 @@ export default function BetsPage() {
           <p>Track your open tickets and results.</p>
         </div>
 
-        <section className={styles.lookup} aria-labelledby="lookup-title">
-          <div className={styles.lookupHeading}>
-            <div>
-              <h2 id="lookup-title">Look up a ticket</h2>
-              <p>Use the code from your accepted ticket.</p>
-            </div>
-            <SearchIcon aria-hidden="true" />
-          </div>
-          <form onSubmit={(event) => void lookupTicket(event)}>
-            <label className={styles.srOnly} htmlFor="ticket-code">Ticket code</label>
-            <input
-              id="ticket-code"
-              autoComplete="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              maxLength={24}
-              placeholder="Paste your 24-character code"
-              value={ticketCode}
-              onChange={(event) => {
-                setTicketCode(event.target.value);
-                setPublicTicket(null);
-                setLookedUpCode("");
-                setCopied(false);
-              }}
-              required
-            />
-            <button type="submit" disabled={lookingUp || !ticketCode.trim()}>
-              {lookingUp ? <span className={styles.spinner} aria-hidden="true" /> : null}
-              {lookingUp ? "Checking" : "Check ticket"}
-            </button>
-          </form>
-          {lookupError ? <p className={styles.error} role="alert">{lookupError}</p> : null}
-          {publicTicket ? (
-            <div className={styles.lookupResult}>
-              <div className={styles.publicCode}>
-                <span>Ticket code</span>
-                <strong>{lookedUpCode}</strong>
-                <button type="button" aria-label="Copy ticket code" onClick={() => void copyTicketCode()}>
-                  <ContentCopyIcon fontSize="small" />
-                </button>
+        {signedIn === false ? (
+          <section className={styles.lookup} aria-labelledby="lookup-title">
+            <div className={styles.lookupHeading}>
+              <div>
+                <h2 id="lookup-title">Look up a ticket</h2>
+                <p>Use the code from your accepted ticket.</p>
               </div>
-              {copied ? <p className={styles.copyNotice} role="status">Code copied.</p> : null}
-              <TicketCard ticket={publicTicket} publicView />
+              <SearchIcon aria-hidden="true" />
             </div>
-          ) : null}
-        </section>
+            <form onSubmit={(event) => void lookupTicket(event)}>
+              <label className={styles.srOnly} htmlFor="ticket-code">Ticket code</label>
+              <input
+                id="ticket-code"
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                maxLength={24}
+                placeholder="Paste your 24-character code"
+                value={ticketCode}
+                onChange={(event) => {
+                  setTicketCode(event.target.value);
+                  setPublicTicket(null);
+                  setLookedUpCode("");
+                  setCopied(false);
+                }}
+                required
+              />
+              <button type="submit" disabled={lookingUp || !ticketCode.trim()}>
+                {lookingUp ? <span className={styles.spinner} aria-hidden="true" /> : null}
+                {lookingUp ? "Checking" : "Check ticket"}
+              </button>
+            </form>
+            {lookupError ? <p className={styles.error} role="alert">{lookupError}</p> : null}
+            {publicTicket ? (
+              <div className={styles.lookupResult}>
+                <div className={styles.publicCode}>
+                  <span>Ticket code</span>
+                  <strong>{lookedUpCode}</strong>
+                  <button type="button" aria-label="Copy ticket code" onClick={() => void copyTicketCode()}>
+                    <ContentCopyIcon fontSize="small" />
+                  </button>
+                </div>
+                {copied ? <p className={styles.copyNotice} role="status">Code copied.</p> : null}
+                <TicketCard ticket={publicTicket} publicView />
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {signedIn ? (
           <section className={styles.history} aria-labelledby="history-title">
@@ -244,8 +343,12 @@ export default function BetsPage() {
               <Link href="/account">Account</Link>
             </div>
             <div className={styles.tabs} role="tablist" aria-label="Bet ticket status">
-              <button type="button" role="tab" aria-selected={tab === "OPEN"} onClick={() => setTab("OPEN")}>Open</button>
-              <button type="button" role="tab" aria-selected={tab === "SETTLED"} onClick={() => setTab("SETTLED")}>Settled</button>
+              <button type="button" role="tab" aria-selected={tab === "OPEN"} onClick={() => void changeTicketTab("OPEN")}>
+                Open <span className={styles.tabCount}>{openTicketCount}</span>
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "SETTLED"} onClick={() => void changeTicketTab("SETTLED")}>
+                Settled
+              </button>
             </div>
             {loadingHistory ? (
               <div className={styles.ticketSkeletons} role="status" aria-label="Loading tickets">
@@ -253,15 +356,26 @@ export default function BetsPage() {
               </div>
             ) : null}
             {historyError ? <p className={styles.error} role="alert">{historyError}</p> : null}
-            {!loadingHistory && !historyError && visibleTickets.length === 0 ? (
+            {!loadingHistory && !historyError && tickets.length === 0 ? (
               <div className={styles.empty}>
                 <p>{tab === "OPEN" ? "No open tickets." : "No settled tickets yet."}</p>
                 <Link href="/betting">Go to the betting desk</Link>
               </div>
             ) : null}
             <div className={styles.ticketList}>
-              {visibleTickets.map((ticket, index) => <TicketCard key={ticket.id ?? `${ticket.placedAt}-${index}`} ticket={ticket} />)}
+              {tickets.map((ticket, index) => <TicketCard key={ticket.id ?? `${ticket.placedAt}-${index}`} ticket={ticket} />)}
             </div>
+            {!loadingHistory && !historyError && ticketCount > 0 ? (
+              <p className={styles.ticketCount} aria-live="polite">
+                Showing {tickets.length} of {ticketCount} {tab === "OPEN" ? "open" : "settled"} tickets
+              </p>
+            ) : null}
+            {hasMoreTickets ? (
+              <button className={styles.loadMore} type="button" onClick={() => void loadMoreTickets()} disabled={loadingMore || loadingHistory}>
+                {loadingMore ? <span className={styles.spinner} aria-hidden="true" /> : null}
+                {loadingMore ? "Loading tickets" : "Load more"}
+              </button>
+            ) : null}
           </section>
         ) : signedIn === false ? (
           <p className={styles.signInNote}>Sign in to see all of your tickets here.</p>

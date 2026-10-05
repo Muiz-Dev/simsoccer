@@ -45,7 +45,7 @@ type MarketResponse = {
   totalRounds?: number;
   currentRoundOpen: boolean;
   defaultRound: number;
-  nextRoundAvailable?: boolean;
+  nextRoundAvailable: boolean;
   serverNow: string;
   cutoffAt: string | null;
   fixtures: Fixture[];
@@ -268,12 +268,18 @@ export default function BettingDesk() {
         });
         if (stopped) return;
         const marketData = await readApiResponse<MarketResponse>(response, "Market service returned an unreadable response.");
-        const cutoffPassed = marketData.cutoffAt !== null
-          && Date.parse(marketData.serverNow) >= Date.parse(marketData.cutoffAt);
-        const currentRoundClosed = !marketData.currentRoundOpen || cutoffPassed;
-        const activeRound = currentRoundClosed && marketData.worldRound < (marketData.totalRounds ?? 38)
+        const activeRound = marketData.nextRoundAvailable
           ? marketData.worldRound + 1
-          : marketData.worldRound;
+          : marketData.currentRoundOpen
+            ? marketData.worldRound
+            : null;
+        if (activeRound === null) {
+          setData({ ...marketData, fixtures: [] });
+          setRound(marketData.defaultRound);
+          setSelectedLeagueId("");
+          setError("");
+          return;
+        }
         if (marketData.round !== activeRound) {
           setRound(activeRound);
           return;
@@ -707,7 +713,11 @@ export default function BettingDesk() {
           {error ? <p className={styles.errorBanner} role="alert">{error}</p> : null}
           {message ? <p className={styles.statusBanner} role="status">{message}</p> : null}
           {!loading && !error && selectedFixtures.length === 0 ? (
-            <p className={styles.emptyState}>No fixtures are scheduled for this round.</p>
+            <p className={styles.emptyState}>
+              {data && !data.currentRoundOpen && !data.nextRoundAvailable
+                ? "Markets are closed for now. The next round will appear when its markets open."
+                : "No fixtures are scheduled for this round."}
+            </p>
           ) : null}
 
           <div className={styles.fixtureList}>

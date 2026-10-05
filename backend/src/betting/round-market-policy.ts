@@ -30,8 +30,8 @@ export function selectDefaultBettingRound(
   nextRoundKickoffs: Date[],
   now: Date | string,
 ): number {
-  if (isRoundMarketOpen(currentRoundKickoffs, now)) return currentRound;
   if (isRoundMarketOpen(nextRoundKickoffs, now)) return currentRound + 1;
+  if (isRoundMarketOpen(currentRoundKickoffs, now)) return currentRound;
   return currentRound;
 }
 
