@@ -27,7 +27,7 @@ export async function executeLiveMatchSimulation(options: {
     .insert(simulationRuns)
     .values({
       fixtureId,
-      simulationVersion: input.simulationVersion || '1.0.0',
+      simulationVersion: input.simulationVersion || env.SIMULATION_VERSION,
       seed: input.seed || 'seed-123',
       status: 'RUNNING',
     })
@@ -61,7 +61,7 @@ export async function executeLiveMatchSimulation(options: {
         .values({
           fixtureId,
           seed: input.seed || 'seed-123',
-          simulationVersion: input.simulationVersion || '1.0.0',
+          simulationVersion: input.simulationVersion || env.SIMULATION_VERSION,
           homeScore: 0,
           awayScore: 0,
           status: 'LIVE',
@@ -71,7 +71,22 @@ export async function executeLiveMatchSimulation(options: {
       matchRecord = inserted;
     }
 
-    const engine = new MatchEngine(input);
+    const simulationInput = {
+      ...input,
+      seed: matchRecord.seed,
+      simulationVersion: matchRecord.simulationVersion,
+    };
+    if (simRun.seed !== simulationInput.seed || simRun.simulationVersion !== simulationInput.simulationVersion) {
+      await db
+        .update(simulationRuns)
+        .set({
+          seed: simulationInput.seed,
+          simulationVersion: simulationInput.simulationVersion,
+        })
+        .where(eq(simulationRuns.id, simRun.id));
+    }
+
+    const engine = new MatchEngine(simulationInput);
     let state: DynamicMatchState;
 
     // Check for saved snapshots to restore state on restart

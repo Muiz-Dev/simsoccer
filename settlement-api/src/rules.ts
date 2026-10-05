@@ -24,6 +24,32 @@ export function gradeOutcome(input: {
   const winsOnLine = (prefix: 'OVER' | 'UNDER', value: number, line: number) =>
     prefix === 'OVER' ? value > line : value < line;
 
+  const totalGoalsMarket = /^TOTAL_GOALS(?:_(\d+(?:\.\d+)?))?$/.exec(marketType);
+  if (totalGoalsMarket) {
+    const match = /^(OVER|UNDER)_(\d+(?:\.\d+)?)$/.exec(outcomeCode);
+    if (!match) throw new Error(`Unsupported total-goals outcome code: ${outcomeCode}`);
+    const line = Number(match[2]);
+    if (totalGoalsMarket[1] !== undefined && Number(totalGoalsMarket[1]) !== line) {
+      throw new Error(`Total-goals market line does not match outcome code: ${marketType} / ${outcomeCode}`);
+    }
+    if (Number.isInteger(line) && totalGoals === line) return 'VOID';
+    return winsOnLine(match[1] as 'OVER' | 'UNDER', totalGoals, line) ? 'WON' : 'LOST';
+  }
+
+  const totalCornersMarket = /^TOTAL_CORNERS(?:_(\d+(?:\.\d+)?))?$/.exec(marketType);
+  if (totalCornersMarket) {
+    if (!statistics) return 'VOID';
+    const match = /^(OVER|UNDER)_(\d+(?:\.\d+)?)$/.exec(outcomeCode);
+    if (!match) throw new Error(`Unsupported ${marketType} outcome code: ${outcomeCode}`);
+    const line = Number(match[2]);
+    if (totalCornersMarket[1] !== undefined && Number(totalCornersMarket[1]) !== line) {
+      throw new Error(`Total-corners market line does not match outcome code: ${marketType} / ${outcomeCode}`);
+    }
+    const total = statistics.homeCorners + statistics.awayCorners;
+    if (Number.isInteger(line) && total === line) return 'VOID';
+    return winsOnLine(match[1] as 'OVER' | 'UNDER', total, line) ? 'WON' : 'LOST';
+  }
+
   switch (marketType) {
     case '1X2':
       if (!['1', 'X', '2'].includes(outcomeCode)) {
@@ -39,17 +65,6 @@ export function gradeOutcome(input: {
           : homeScore <= awayScore;
       return won ? 'WON' : 'LOST';
     }
-    case 'TOTAL_GOALS':
-    case 'TOTAL_GOALS_0.5':
-    case 'TOTAL_GOALS_1.5':
-    case 'TOTAL_GOALS_2.5':
-    case 'TOTAL_GOALS_3.5':
-    case 'TOTAL_GOALS_4.5':
-    case 'TOTAL_GOALS_5.5': {
-      const match = /^(OVER|UNDER)_(\d+(?:\.\d+)?)$/.exec(outcomeCode);
-      if (!match) throw new Error(`Unsupported total-goals outcome code: ${outcomeCode}`);
-      return winsOnLine(match[1] as 'OVER' | 'UNDER', totalGoals, Number(match[2])) ? 'WON' : 'LOST';
-    }
     case 'BTTS': {
       if (!['YES', 'NO'].includes(outcomeCode)) {
         throw new Error(`Unsupported BTTS outcome code: ${outcomeCode}`);
@@ -62,16 +77,15 @@ export function gradeOutcome(input: {
         throw new Error(`Unsupported correct-score outcome code: ${outcomeCode}`);
       }
       return outcomeCode === `${homeScore}-${awayScore}` ? 'WON' : 'LOST';
-    case 'TOTAL_CORNERS':
     case 'TOTAL_CARDS': {
       if (!statistics) return 'VOID';
       const match = /^(OVER|UNDER)_(\d+(?:\.\d+)?)$/.exec(outcomeCode);
       if (!match) throw new Error(`Unsupported ${marketType} outcome code: ${outcomeCode}`);
-      const total = marketType === 'TOTAL_CORNERS'
-        ? statistics.homeCorners + statistics.awayCorners
-        : statistics.homeYellowCards + statistics.awayYellowCards
-          + 2 * (statistics.homeRedCards + statistics.awayRedCards);
-      return winsOnLine(match[1] as 'OVER' | 'UNDER', total, Number(match[2])) ? 'WON' : 'LOST';
+      const line = Number(match[2]);
+      const total = statistics.homeYellowCards + statistics.awayYellowCards
+        + 2 * (statistics.homeRedCards + statistics.awayRedCards);
+      if (Number.isInteger(line) && total === line) return 'VOID';
+      return winsOnLine(match[1] as 'OVER' | 'UNDER', total, line) ? 'WON' : 'LOST';
     }
     default:
       throw new Error(`Unsupported market type: ${marketType}`);

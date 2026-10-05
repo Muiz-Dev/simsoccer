@@ -381,42 +381,129 @@
 .goalTimelineEvents {
   display: grid;
   grid-column: 2;
-  grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
-  align-items: start;
-  column-gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .timelineEvent {
-  display: flex;
-  width: fit-content;
-  min-height: 34px;
+  display: grid;
+  grid-template-columns: 34px 30px minmax(0, 1fr);
+  min-height: 36px;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
+  padding: 3px 8px;
+  border-bottom: 1px solid #e7ebe8;
   font-size: 12px;
 }
 
 .homeTimelineEvent {
-  grid-column: 1;
-  justify-self: end;
+  border-left: 2px solid var(--pitch);
 }
 
 .awayTimelineEvent {
-  grid-column: 3;
-  justify-self: start;
+  border-left: 2px solid #a7322b;
+}
+
+.timelineNeutralEvent {
+  border-left: 2px solid #aeb8b1;
 }
 
 .timelineMinute {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-.timelineEvent svg {
+.timelineEventIcon {
+  width: 17px;
+  height: 17px;
   color: var(--pitch);
-  font-size: 16px;
+}
+
+.timelineStrokeIcon path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.timelineIncidentIcons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.timelineYellowCard {
+  color: #8a6800;
+}
+
+.timelineYellowCard rect {
+  fill: #f2c94c;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+
+.timelineRedCard {
+  color: #8f211d;
+}
+
+.timelineRedCard rect {
+  fill: #c43b32;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+
+.timelineCorner {
+  color: var(--pitch);
+}
+
+.timelineDescription {
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.timelineEventMarker {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.timelineStats {
+  grid-column: 2;
+  width: 100%;
+  margin-top: 8px;
+  border-collapse: collapse;
+  color: var(--ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.timelineStats th,
+.timelineStats td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #e7ebe8;
+  text-align: center;
+}
+
+.timelineStats th:first-child {
+  color: var(--muted);
+  font-weight: 500;
+  text-align: left;
+}
+
+.timelineStats thead th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .noTimelineEvents {
-  grid-column: 1 / -1;
+  grid-column: 2;
   margin: 0;
   padding: 9px 0;
   color: var(--muted);
@@ -677,11 +764,6 @@
       column-gap: 8px;
     }
 
-    .goalTimelineEvents {
-      grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
-      column-gap: 5px;
-    }
-
     .score {
       font-size: 17px;
     }
@@ -741,11 +823,6 @@
       column-gap: 5px;
     }
 
-    .goalTimelineEvents {
-      grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
-      column-gap: 3px;
-    }
-
     .matchLine {
       grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
       gap: 3px;
@@ -783,10 +860,6 @@
 
     .goalTimeline {
       grid-template-columns: 55px minmax(0, 1fr);
-    }
-
-    .goalTimelineEvents {
-      grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
     }
 
     .matchLine {

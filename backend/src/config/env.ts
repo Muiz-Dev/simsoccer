@@ -27,7 +27,7 @@ const envSchema = z.object({
   MARKET_PREPARATION_BUFFER_SECONDS: z.string().default('120').transform((val) => parseInt(val, 10)),
   FIXTURE_KICKOFF_STAGGER_SECONDS: z.string().default('60').transform((val) => parseInt(val, 10)),
   ROUND_BREAK_SECONDS: z.string().default('600').transform((val) => parseInt(val, 10)),
-  SIMULATION_VERSION: z.string().default('1.0.0'),
+  SIMULATION_VERSION: z.string().default('1.1.0'),
 
   TEST_DATABASE_URL: z.string().optional(),
   TEST_REDIS_URL: z.string().optional(),

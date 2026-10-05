@@ -171,6 +171,7 @@ function marketLabel(marketType: string) {
   if (marketType === "DOUBLE_CHANCE") return "Double chance";
   if (marketType === "BTTS") return "Both teams to score";
   if (marketType === "CORRECT_SCORE") return "Correct score";
+  if (marketType.startsWith("TOTAL_CORNERS_")) return `Total corners ${marketType.slice("TOTAL_CORNERS_".length)}`;
   if (marketType === "TOTAL_CORNERS") return "Total corners";
   if (marketType === "TOTAL_CARDS") return "Total cards";
   return marketType.replaceAll("_", " ");

@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, users, authSessions, authDevices, authChallenges, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
+import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, matchStatistics, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, users, authSessions, authDevices, authChallenges, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
 import { authenticateJwt, requireLocalAccount, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
@@ -274,8 +274,8 @@ export function createApp() {
       const teamById = new Map(leagueTeams.map((team) => [team.id, team]));
       const allVisibleFixtures = [...roundFixtures, ...nextRoundFixtures, ...previousRoundFixtures];
       const fixtureIds = allVisibleFixtures.map((fixture) => fixture.id);
-      const [matchRows, goalRows] = fixtureIds.length === 0
-        ? [[], []]
+      const [matchRows, eventRows, statisticsRows] = fixtureIds.length === 0
+        ? [[], [], []]
         : await Promise.all([
           db.select({
             fixtureId: matches.fixtureId,
@@ -289,25 +289,32 @@ export function createApp() {
             fixtureId: matchEvents.fixtureId,
             sequence: matchEvents.sequence,
             virtualMinute: matchEvents.virtualMinute,
+            virtualSecond: matchEvents.virtualSecond,
+            eventType: matchEvents.eventType,
             teamId: matchEvents.teamId,
+            playerId: matchEvents.playerId,
             playerName: players.name,
+            metadata: matchEvents.metadata,
             createdAt: matchEvents.createdAt,
           })
             .from(matchEvents)
             .leftJoin(players, eq(matchEvents.playerId, players.id))
-            .where(and(inArray(matchEvents.fixtureId, fixtureIds), eq(matchEvents.eventType, 'GOAL')))
-            .orderBy(asc(matchEvents.sequence)),
+            .where(inArray(matchEvents.fixtureId, fixtureIds))
+            .orderBy(asc(matchEvents.fixtureId), asc(matchEvents.sequence)),
+          db.select().from(matchStatistics).where(inArray(matchStatistics.fixtureId, fixtureIds)),
         ]);
       const matchByFixtureId = new Map(matchRows.map((match) => [match.fixtureId, match]));
-      const goalsByFixtureId = new Map<string, typeof goalRows>();
-      for (const goal of goalRows) {
-        const fixtureGoals = goalsByFixtureId.get(goal.fixtureId) ?? [];
-        fixtureGoals.push(goal);
-        goalsByFixtureId.set(goal.fixtureId, fixtureGoals);
+      const eventsByFixtureId = new Map<string, typeof eventRows>();
+      for (const event of eventRows) {
+        const fixtureEvents = eventsByFixtureId.get(event.fixtureId) ?? [];
+        fixtureEvents.push(event);
+        eventsByFixtureId.set(event.fixtureId, fixtureEvents);
       }
+      const statisticsByFixtureId = new Map(statisticsRows.map((statistics) => [statistics.fixtureId, statistics]));
 
       const formatFixture = (fixture: typeof fixtures.$inferSelect) => {
         const match = matchByFixtureId.get(fixture.id);
+        const fixtureEvents = eventsByFixtureId.get(fixture.id) ?? [];
         return {
           id: fixture.id,
           round: fixture.round,
@@ -320,13 +327,25 @@ export function createApp() {
           awayScore: fixture.awayScore ?? 0,
           virtualSecond: match?.virtualSecond ?? 0,
           clockUpdatedAt: match?.updatedAt ?? null,
-          goalEvents: (goalsByFixtureId.get(fixture.id) ?? []).map((goal) => ({
+          goalEvents: fixtureEvents.filter((event) => event.eventType === 'GOAL').map((goal) => ({
             sequence: goal.sequence,
             minute: goal.virtualMinute,
             teamId: goal.teamId,
             playerName: goal.playerName,
             createdAt: goal.createdAt,
           })),
+          matchEvents: fixtureEvents.map((event) => ({
+            sequence: event.sequence,
+            virtualMinute: event.virtualMinute,
+            virtualSecond: event.virtualSecond,
+            eventType: event.eventType,
+            teamId: event.teamId,
+            playerId: event.playerId,
+            playerName: event.playerName,
+            metadata: event.metadata,
+            createdAt: event.createdAt,
+          })),
+          matchStatistics: statisticsByFixtureId.get(fixture.id) ?? null,
           homeTeam: teamById.get(fixture.homeTeamId) ?? null,
           awayTeam: teamById.get(fixture.awayTeamId) ?? null,
         };
@@ -945,7 +964,9 @@ export function createApp() {
 
   app.get('/api/fixtures/:id/events', async (req: Request, res: Response) => {
     const fixtureId = req.params.id as string;
-    const events = await db.select().from(matchEvents).where(eq(matchEvents.fixtureId, fixtureId));
+    const events = await db.select().from(matchEvents)
+      .where(eq(matchEvents.fixtureId, fixtureId))
+      .orderBy(asc(matchEvents.sequence));
     res.json(events);
   });
 
@@ -1165,7 +1186,7 @@ export function createApp() {
       const engine = new MatchEngine({
         fixtureId: fixtureId || 'sim-lab-fixture-1',
         seasonId: 'sim-lab-season',
-        simulationVersion: '1.0.0',
+        simulationVersion: env.SIMULATION_VERSION,
         seed: seed || 'sim-lab-seed-123',
         homeTeam: homeTeam || { id: 'team-a', name: 'Team A', attackStrength: 1.2, defenseStrength: 1.0, overallRating: 80 },
         awayTeam: awayTeam || { id: 'team-b', name: 'Team B', attackStrength: 1.0, defenseStrength: 1.1, overallRating: 78 },

@@ -19,7 +19,9 @@ export interface TeamGoalRating {
   homeAdvantage?: number;
 }
 
-export const STANDARD_MARKET_MARGIN = 0.055;
+export const STANDARD_MARKET_MARGIN = 0.045;
+export const GOAL_TOTAL_LINES = [0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5] as const;
+export const CORNER_TOTAL_LINES = [6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5] as const;
 
 export function calculateExpectedGoals(home: TeamGoalRating, away: TeamGoalRating) {
   return {
@@ -65,6 +67,19 @@ function poisson(k: number, lambda: number): number {
   let factorial = 1;
   for (let i = 1; i <= k; i++) factorial *= i;
   return (Math.pow(lambda, k) * Math.exp(-lambda)) / factorial;
+}
+
+function poissonCdf(maxValue: number, lambda: number): number {
+  if (maxValue < 0) return 0;
+
+  let probability = Math.exp(-lambda);
+  let cumulative = probability;
+  for (let value = 1; value <= maxValue; value++) {
+    probability *= lambda / value;
+    cumulative += probability;
+  }
+
+  return Math.min(1, cumulative);
 }
 
 /**
@@ -136,22 +151,26 @@ export function calculateAllPreMatchMarkets(
     ]),
   };
 
-  // 3. Total Goals Markets (0.5, 1.5, 2.5, 3.5, 4.5)
-  const goalLines = [0.5, 1.5, 2.5, 3.5, 4.5];
-  const goalMarkets: CalculatedMarket[] = goalLines.map((line) => {
+  // Whole-number lines exclude pushes when pricing the two quoted outcomes.
+  const goalMarkets: CalculatedMarket[] = GOAL_TOTAL_LINES.map((line) => {
     let underProb = 0;
     let overProb = 0;
     for (let h = 0; h <= 7; h++) {
       for (let a = 0; a <= 7; a++) {
         if (h + a < line) underProb += matrix[h][a];
-        else overProb += matrix[h][a];
+        else if (h + a > line) overProb += matrix[h][a];
       }
+    }
+    const nonPushProbability = overProb + underProb;
+    if (Number.isInteger(line)) {
+      overProb /= nonPushProbability;
+      underProb /= nonPushProbability;
     }
     return {
       marketType: `TOTAL_GOALS_${line}`,
       outcomes: calculateOddsWithMargin([
-        { code: `OVER_${line}`, name: `Over ${line} Goals`, prob: overProb },
-        { code: `UNDER_${line}`, name: `Under ${line} Goals`, prob: underProb },
+        { code: `OVER_${line}`, name: `Over ${line} ${line === 1 ? 'Goal' : 'Goals'}`, prob: overProb },
+        { code: `UNDER_${line}`, name: `Under ${line} ${line === 1 ? 'Goal' : 'Goals'}`, prob: underProb },
       ]),
     };
   });
@@ -191,29 +210,24 @@ export function calculateAllPreMatchMarkets(
     outcomes: calculateOddsWithMargin(csItems, 0.08),
   };
 
-  // 6. Total Corners (Over / Under 9.5) — Dynamic Poisson Model
-  const expectedCornerLambda = Math.max(4.0, (lambdaHome + lambdaAway) * 4.2);
-  let under95CornersProb = 0;
-  for (let k = 0; k <= 9; k++) {
-    under95CornersProb += poisson(k, expectedCornerLambda);
-  }
-  const over95CornersProb = Math.max(0.01, 1 - under95CornersProb);
-
-  const marketCorners: CalculatedMarket = {
-    marketType: 'TOTAL_CORNERS',
-    outcomes: calculateOddsWithMargin([
-      { code: 'OVER_9.5', name: 'Over 9.5 Corners', prob: over95CornersProb },
-      { code: 'UNDER_9.5', name: 'Under 9.5 Corners', prob: under95CornersProb },
-    ]),
-  };
+  // 6. Total corners use a separate count model calibrated to the simulator baseline.
+  const expectedCornerLambda = Math.max(4.0, (lambdaHome + lambdaAway) * 4.0);
+  const marketCorners: CalculatedMarket[] = CORNER_TOTAL_LINES.map((line) => {
+    const underProb = poissonCdf(Math.floor(line), expectedCornerLambda);
+    const overProb = Math.max(0, 1 - underProb);
+    return {
+      marketType: `TOTAL_CORNERS_${line}`,
+      outcomes: calculateOddsWithMargin([
+        { code: `OVER_${line}`, name: `Over ${line} Corners`, prob: overProb },
+        { code: `UNDER_${line}`, name: `Under ${line} Corners`, prob: underProb },
+      ]),
+    };
+  });
 
   // 7. Total Cards (Over / Under 4.5) — Dynamic Poisson Model
   const expectedCardLambda = Math.max(2.0, 4.5 / (0.8 + 0.2 * (lambdaHome + lambdaAway)));
-  let under45CardsProb = 0;
-  for (let k = 0; k <= 4; k++) {
-    under45CardsProb += poisson(k, expectedCardLambda);
-  }
-  const over45CardsProb = Math.max(0.01, 1 - under45CardsProb);
+  const under45CardsProb = poissonCdf(4, expectedCardLambda);
+  const over45CardsProb = Math.max(0, 1 - under45CardsProb);
 
   const marketCards: CalculatedMarket = {
     marketType: 'TOTAL_CARDS',
@@ -223,5 +237,5 @@ export function calculateAllPreMatchMarkets(
     ]),
   };
 
-  return [market1X2, marketDC, ...goalMarkets, marketBTTS, marketCS, marketCorners, marketCards];
+  return [market1X2, marketDC, ...goalMarkets, marketBTTS, marketCS, ...marketCorners, marketCards];
 }

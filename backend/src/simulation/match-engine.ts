@@ -441,14 +441,21 @@ export class MatchEngine {
       }
 
       state.eventSequence++;
+      const secondYellowDismissal = !isRed && isYellow && Boolean(fowler && fowler.yellowCards >= 2);
+      const eventType = isRed || secondYellowDismissal ? 'RED_CARD' : isYellow ? 'YELLOW_CARD' : 'FOUL';
       events.push({
         fixtureId: state.fixtureId,
         sequence: state.eventSequence,
         virtualMinute: state.virtualMinute,
         virtualSecond: state.virtualSecond,
-        eventType: isRed || (fowler && fowler.yellowCards >= 2) ? 'RED_CARD' : isYellow ? 'YELLOW_CARD' : 'FOUL',
+        eventType,
         teamId: this.input.homeTeam.id,
         playerId: fowler?.id,
+        metadata: {
+          foulCommitted: true,
+          card: eventType === 'RED_CARD' ? 'RED' : eventType === 'YELLOW_CARD' ? 'YELLOW' : null,
+          secondYellowDismissal,
+        },
       });
       return;
     }
@@ -481,14 +488,21 @@ export class MatchEngine {
       }
 
       state.eventSequence++;
+      const secondYellowDismissal = !isRed && isYellow && Boolean(fowler && fowler.yellowCards >= 2);
+      const eventType = isRed || secondYellowDismissal ? 'RED_CARD' : isYellow ? 'YELLOW_CARD' : 'FOUL';
       events.push({
         fixtureId: state.fixtureId,
         sequence: state.eventSequence,
         virtualMinute: state.virtualMinute,
         virtualSecond: state.virtualSecond,
-        eventType: isRed || (fowler && fowler.yellowCards >= 2) ? 'RED_CARD' : isYellow ? 'YELLOW_CARD' : 'FOUL',
+        eventType,
         teamId: this.input.awayTeam.id,
         playerId: fowler?.id,
+        metadata: {
+          foulCommitted: true,
+          card: eventType === 'RED_CARD' ? 'RED' : eventType === 'YELLOW_CARD' ? 'YELLOW' : null,
+          secondYellowDismissal,
+        },
       });
       return;
     }

@@ -24,7 +24,7 @@ import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
 import AuthAction from "@/components/AuthAction";
 import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
-import type { Fixture, Standing, WorldOverview } from "@/contexts/WorldDataContext";
+import type { Fixture, MatchEvent, Standing, WorldOverview } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
 import styles from "./MatchCentre.module.css";
 
@@ -112,7 +112,22 @@ function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
 
   if (!timelineEnabled) return matchRow;
 
-  const goals = [...(fixture.goalEvents ?? [])].sort((a, b) => a.sequence - b.sequence);
+  const events = [...(fixture.matchEvents ?? [])]
+    .filter((event) => [
+      "GOAL",
+      "SHOT",
+      "SHOT_ON_TARGET",
+      "CORNER",
+      "FOUL",
+      "YELLOW_CARD",
+      "RED_CARD",
+      "INJURY",
+      "SUBSTITUTION",
+      "HALFTIME",
+      "MATCH_END",
+    ].includes(event.eventType))
+    .sort((a, b) => a.sequence - b.sequence);
+  const stats = getDisplayedMatchStatistics(fixture);
   const timelineId = `timeline-${fixture.id}`;
   return (
     <article className={styles.resultMatch}>
@@ -129,27 +144,154 @@ function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
       </button>
       {timelineOpen ? (
         <div className={styles.goalTimeline} id={timelineId}>
-          {goals.length ? (
-            <div className={styles.goalTimelineEvents}>
-              {goals.map((goal) => {
-                const isHomeGoal = goal.teamId === fixture.homeTeam?.id;
+          {events.length ? (
+            <ol className={styles.goalTimelineEvents} aria-label="Match events">
+              {events.map((event) => {
+                const isHomeEvent = event.teamId === fixture.homeTeam?.id;
+                const isAwayEvent = event.teamId === fixture.awayTeam?.id;
+                const eventTeam = isHomeEvent ? homeName : event.teamId === fixture.awayTeam?.id ? awayName : null;
+                const description = describeMatchEvent(event, eventTeam);
                 return (
-                  <div
-                    className={`${styles.timelineEvent} ${isHomeGoal ? styles.homeTimelineEvent : styles.awayTimelineEvent}`}
-                    key={goal.sequence}
-                    aria-label={`${goal.minute} minute goal for ${isHomeGoal ? homeName : awayName}`}
+                  <li
+                    className={`${styles.timelineEvent} ${isHomeEvent ? styles.homeTimelineEvent : isAwayEvent ? styles.awayTimelineEvent : styles.timelineNeutralEvent}`}
+                    key={event.sequence}
+                    aria-label={`${event.virtualMinute} minute, ${description}`}
                   >
-                    <span className={styles.timelineMinute}>{goal.minute}&apos;</span>
-                    <SportsSoccerIcon aria-hidden="true" />
-                  </div>
+                    <span className={styles.timelineMinute}>{event.virtualMinute}&apos;</span>
+                    <MatchEventIcon event={event} />
+                    <span className={styles.timelineDescription}>{description}</span>
+                  </li>
                 );
               })}
-            </div>
-          ) : <p className={styles.noTimelineEvents}>No goals in this match.</p>}
+            </ol>
+          ) : <p className={styles.noTimelineEvents}>No match events have been recorded.</p>}
+          <table className={styles.timelineStats} aria-label="Match statistics">
+            <thead>
+              <tr>
+                <th scope="col">Stats</th>
+                <th scope="col">{fixture.homeTeam?.shortName ?? homeName}</th>
+                <th scope="col">{fixture.awayTeam?.shortName ?? awayName}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.rows.map((row) => (
+                <tr key={row.label}>
+                  <th scope="row">{row.label}</th>
+                  <td>{row.home}</td>
+                  <td>{row.away}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : null}
     </article>
   );
+}
+
+function getDisplayedMatchStatistics(fixture: Fixture): { rows: Array<{ label: string; home: number; away: number }> } {
+  const finalStats = fixture.matchStatistics;
+  if (finalStats) {
+    return {
+      rows: [
+        { label: "Shots", home: finalStats.homeShots, away: finalStats.awayShots },
+        { label: "Corners", home: finalStats.homeCorners, away: finalStats.awayCorners },
+        { label: "Fouls", home: finalStats.homeFouls, away: finalStats.awayFouls },
+        { label: "Yellow cards", home: finalStats.homeYellowCards, away: finalStats.awayYellowCards },
+        { label: "Red cards", home: finalStats.homeRedCards, away: finalStats.awayRedCards },
+      ],
+    };
+  }
+
+  const totals = new Map<string, { shots: number; corners: number; fouls: number; yellowCards: number; redCards: number }>();
+  for (const teamId of [fixture.homeTeam?.id, fixture.awayTeam?.id]) {
+    if (teamId) totals.set(teamId, { shots: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 });
+  }
+  for (const event of fixture.matchEvents ?? []) {
+    const teamStats = event.teamId ? totals.get(event.teamId) : undefined;
+    if (!teamStats) continue;
+    if (["GOAL", "SHOT", "SHOT_ON_TARGET"].includes(event.eventType)) teamStats.shots++;
+    if (event.eventType === "CORNER") teamStats.corners++;
+    if (event.eventType === "FOUL" || ["YELLOW_CARD", "RED_CARD"].includes(event.eventType)) teamStats.fouls++;
+    if (event.eventType === "YELLOW_CARD" || event.metadata?.secondYellowDismissal === true) teamStats.yellowCards++;
+    if (event.eventType === "RED_CARD") teamStats.redCards++;
+  }
+  const home = fixture.homeTeam ? totals.get(fixture.homeTeam.id) : undefined;
+  const away = fixture.awayTeam ? totals.get(fixture.awayTeam.id) : undefined;
+  return {
+    rows: [
+      { label: "Shots", home: home?.shots ?? 0, away: away?.shots ?? 0 },
+      { label: "Corners", home: home?.corners ?? 0, away: away?.corners ?? 0 },
+      { label: "Fouls", home: home?.fouls ?? 0, away: away?.fouls ?? 0 },
+      { label: "Yellow cards", home: home?.yellowCards ?? 0, away: away?.yellowCards ?? 0 },
+      { label: "Red cards", home: home?.redCards ?? 0, away: away?.redCards ?? 0 },
+    ],
+  };
+}
+
+function describeMatchEvent(event: MatchEvent, teamName: string | null): string {
+  const team = teamName ?? "Match";
+  const player = event.playerName ? ` · ${event.playerName}` : "";
+  switch (event.eventType) {
+    case "GOAL":
+      return `Goal · ${team}${player}`;
+    case "SHOT":
+      return `Shot · ${team}${player}`;
+    case "SHOT_ON_TARGET":
+      return `Shot on target · ${team}${player}`;
+    case "CORNER":
+      return `Corner · ${team}`;
+    case "FOUL":
+      return `Foul · ${team}${player}`;
+    case "YELLOW_CARD":
+      return `Foul · Yellow card · ${team}${player}`;
+    case "RED_CARD":
+      return `Foul · ${event.metadata?.secondYellowDismissal === true ? "Second yellow, red card" : "Red card"} · ${team}${player}`;
+    case "INJURY":
+      return `Injury · ${team}${player}`;
+    case "SUBSTITUTION":
+      return `Substitution · ${team}${player}`;
+    case "HALFTIME":
+      return "Half-time";
+    case "MATCH_END":
+      return "Full time";
+    default:
+      return event.eventType.replaceAll("_", " ");
+  }
+}
+
+function MatchEventIcon({ event }: { event: MatchEvent }) {
+  if (event.eventType === "GOAL" || event.eventType === "SHOT" || event.eventType === "SHOT_ON_TARGET") {
+    return <SportsSoccerIcon className={styles.timelineEventIcon} aria-hidden="true" />;
+  }
+  if (event.eventType === "CORNER") {
+    return (
+      <svg className={`${styles.timelineEventIcon} ${styles.timelineStrokeIcon} ${styles.timelineCorner}`} viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 21V4m1 1h12l-4 4 4 4H6" />
+      </svg>
+    );
+  }
+  if (["FOUL", "YELLOW_CARD", "RED_CARD"].includes(event.eventType)) {
+    return (
+      <span className={styles.timelineIncidentIcons} aria-hidden="true">
+        <svg className={`${styles.timelineEventIcon} ${styles.timelineStrokeIcon} ${styles.timelineWhistle}`} viewBox="0 0 24 24">
+          <path d="M4 13a7 7 0 0 0 13 4l2 1.5 2-2-8-8a7 7 0 0 0-9 4.5Z" />
+          <path d="M11 12a2 2 0 1 1-2.8-2.8M5 6 3.5 4.5" />
+        </svg>
+        {event.eventType === "YELLOW_CARD" || event.metadata?.secondYellowDismissal === true ? (
+          <svg className={`${styles.timelineEventIcon} ${styles.timelineYellowCard}`} viewBox="0 0 24 24">
+            <rect x="6" y="2.5" width="12" height="19" rx="1" />
+          </svg>
+        ) : null}
+        {event.eventType === "RED_CARD" ? (
+          <svg className={`${styles.timelineEventIcon} ${styles.timelineRedCard}`} viewBox="0 0 24 24">
+            <rect x="6" y="2.5" width="12" height="19" rx="1" />
+          </svg>
+        ) : null}
+      </span>
+    );
+  }
+  return <span className={styles.timelineEventMarker} aria-hidden="true">{event.eventType === "HALFTIME" ? "HT" : "FT"}</span>;
 }
 
 function MatchSkeletonList({ count = 5 }: { count?: number }) {

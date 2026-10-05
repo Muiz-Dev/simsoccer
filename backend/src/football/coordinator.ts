@@ -6,12 +6,38 @@ import { eq, and, or, sql, asc, desc, inArray } from 'drizzle-orm';
 import { env } from '../config/env';
 import { simulationQueue } from '../workers/queues';
 import { buildSimulationInput } from './match-input';
-import { calculateAllPreMatchMarkets, calculateExpectedGoals } from '../markets/probability-engine';
+import {
+  calculateAllPreMatchMarkets,
+  calculateExpectedGoals,
+  CORNER_TOTAL_LINES,
+  GOAL_TOTAL_LINES,
+} from '../markets/probability-engine';
 import { getRoundCutoffAt } from '../betting/round-market-policy';
 import { generateDoubleRoundRobin } from './fixture-generator';
 
 const ADVISORY_LOCK_ID = 88812388;
 const NODE_ID = `node-${process.pid}-${Math.random().toString(36).substring(2, 7)}`;
+const REQUIRED_MARKET_TYPES = [
+  '1X2',
+  'DOUBLE_CHANCE',
+  'BTTS',
+  'CORRECT_SCORE',
+  'TOTAL_CARDS',
+  ...GOAL_TOTAL_LINES.map((line) => `TOTAL_GOALS_${line}`),
+  ...CORNER_TOTAL_LINES.map((line) => `TOTAL_CORNERS_${line}`),
+];
+
+type ExistingFixtureMarket = { marketType: string; marketScope: string };
+
+function hasCompleteMarketSet(existingMarkets: ExistingFixtureMarket[]): boolean {
+  const marketTypes = new Set(
+    existingMarkets.filter((market) => market.marketScope === 'FULL_TIME').map((market) => market.marketType),
+  );
+  return REQUIRED_MARKET_TYPES.every((marketType) =>
+    marketTypes.has(marketType)
+    || (marketType === 'TOTAL_CORNERS_9.5' && marketTypes.has('TOTAL_CORNERS')),
+  );
+}
 
 export type WorldStatusType = 'RUNNING' | 'RECOVERING' | 'WAITING_FOR_SEASON' | 'DEGRADED' | 'STOPPED';
 
@@ -533,9 +559,12 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
       if (now.getTime() >= marketPreparationStartsAt) {
         const nextRoundFixtures = allFixtures.filter((fixture) => fixture.round === worldRound + 1 && fixture.status === 'SCHEDULED');
         for (const fixture of nextRoundFixtures) {
-          const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixture.id));
-          if (existingMarkets.length === 0) {
-            await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+          const existingMarkets = await db.select({
+            marketType: markets.marketType,
+            marketScope: markets.marketScope,
+          }).from(markets).where(eq(markets.fixtureId, fixture.id));
+          if (!hasCompleteMarketSet(existingMarkets)) {
+            await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId, existingMarkets);
           }
         }
       }
@@ -557,9 +586,12 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
   if (marketPreparationDeadline && marketPreparationDeadline.getTime() - now.getTime() <= marketOpenAt) {
     const scheduledFixtures = currentRoundFixtures.filter((fixture) => fixture.status === 'SCHEDULED');
     for (const fixture of scheduledFixtures) {
-      const existingMarkets = await db.select().from(markets).where(eq(markets.fixtureId, fixture.id));
-      if (existingMarkets.length === 0) {
-        await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+      const existingMarkets = await db.select({
+        marketType: markets.marketType,
+        marketScope: markets.marketScope,
+      }).from(markets).where(eq(markets.fixtureId, fixture.id));
+      if (!hasCompleteMarketSet(existingMarkets)) {
+        await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId, existingMarkets);
       }
     }
   }
@@ -584,14 +616,24 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
     const upcomingFixtureIds = upcomingFixtures.map((fixture) => fixture.id);
     const existingUpcomingMarkets = upcomingFixtureIds.length === 0
       ? []
-      : await db.select({ fixtureId: markets.fixtureId })
+      : await db.select({
+        fixtureId: markets.fixtureId,
+        marketType: markets.marketType,
+        marketScope: markets.marketScope,
+      })
         .from(markets)
         .where(inArray(markets.fixtureId, upcomingFixtureIds));
-    const preparedFixtureIds = new Set(existingUpcomingMarkets.map((market) => market.fixtureId));
+    const marketsByFixtureId = new Map<string, ExistingFixtureMarket[]>();
+    for (const market of existingUpcomingMarkets) {
+      const fixtureMarkets = marketsByFixtureId.get(market.fixtureId) ?? [];
+      fixtureMarkets.push(market);
+      marketsByFixtureId.set(market.fixtureId, fixtureMarkets);
+    }
 
     for (const fixture of upcomingFixtures) {
-      if (!preparedFixtureIds.has(fixture.id)) {
-        await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId);
+      const existingMarkets = marketsByFixtureId.get(fixture.id) ?? [];
+      if (!hasCompleteMarketSet(existingMarkets)) {
+        await prepareFixtureMarkets(fixture.id, fixture.seasonId, fixture.homeTeamId, fixture.awayTeamId, existingMarkets);
       }
     }
 
@@ -622,7 +664,13 @@ export async function reconcileAndScheduleWorld(): Promise<void> {
   await updateRuntimeHeartbeat('RUNNING', firstSeason.id, worldRound, totalRounds, null);
 }
 
-async function prepareFixtureMarkets(fixtureId: string, seasonId: string, homeTeamId: string, awayTeamId: string) {
+async function prepareFixtureMarkets(
+  fixtureId: string,
+  seasonId: string,
+  homeTeamId: string,
+  awayTeamId: string,
+  existingMarkets: ExistingFixtureMarket[],
+) {
   const [homeRating] = await db.select().from(teamRatings).where(and(eq(teamRatings.seasonId, seasonId), eq(teamRatings.teamId, homeTeamId)));
   const [awayRating] = await db.select().from(teamRatings).where(and(eq(teamRatings.seasonId, seasonId), eq(teamRatings.teamId, awayTeamId)));
 
@@ -647,8 +695,16 @@ async function prepareFixtureMarkets(fixtureId: string, seasonId: string, homeTe
   }
 
   const calculated = calculateAllPreMatchMarkets(lambdaHome, lambdaAway);
+  const existingMarketTypes = new Set(
+    existingMarkets.filter((market) => market.marketScope === 'FULL_TIME').map((market) => market.marketType),
+  );
 
   for (const mData of calculated) {
+    if (existingMarketTypes.has(mData.marketType)
+      || (mData.marketType === 'TOTAL_CORNERS_9.5' && existingMarketTypes.has('TOTAL_CORNERS'))) {
+      continue;
+    }
+
     const [mRecord] = await db.insert(markets).values({
       fixtureId,
       marketType: mData.marketType,

@@ -118,7 +118,7 @@ async function runTests() {
 
   console.log(`  📊 Generated ${markets.length} market types: ${marketTypes.join(', ')}`);
 
-  const requiredMarkets = ['1X2', 'DOUBLE_CHANCE', 'BTTS', 'CORRECT_SCORE', 'TOTAL_CORNERS', 'TOTAL_CARDS'];
+  const requiredMarkets = ['1X2', 'DOUBLE_CHANCE', 'BTTS', 'CORRECT_SCORE', 'TOTAL_CORNERS_9.5', 'TOTAL_CARDS'];
   for (const req of requiredMarkets) {
     if (!marketTypes.includes(req)) {
       throw new Error(`❌ Test 4 Failed: Required market type '${req}' missing from probability engine output!`);

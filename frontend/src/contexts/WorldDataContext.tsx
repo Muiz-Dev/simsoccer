@@ -3,6 +3,31 @@
 import { createContext, startTransition, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 export type Team = { id: string; name: string; shortName: string; slug: string };
+export type MatchEvent = {
+  sequence: number;
+  virtualMinute: number;
+  virtualSecond: number;
+  eventType: string;
+  teamId?: string | null;
+  playerId?: string | null;
+  playerName?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt?: string;
+};
+export type MatchStatistics = {
+  homeShots: number;
+  awayShots: number;
+  homeShotsOnTarget: number;
+  awayShotsOnTarget: number;
+  homeCorners: number;
+  awayCorners: number;
+  homeFouls: number;
+  awayFouls: number;
+  homeYellowCards: number;
+  awayYellowCards: number;
+  homeRedCards: number;
+  awayRedCards: number;
+};
 export type Fixture = {
   id: string;
   round: number;
@@ -16,6 +41,8 @@ export type Fixture = {
   virtualSecond: number;
   clockUpdatedAt: string | null;
   goalEvents?: GoalEvent[];
+  matchEvents?: MatchEvent[];
+  matchStatistics?: MatchStatistics | null;
   homeTeam: Team | null;
   awayTeam: Team | null;
 };
@@ -76,10 +103,37 @@ function statusRank(status: string) {
   return 0;
 }
 
+function mergeMatchEvents(current: MatchEvent[] = [], incoming: MatchEvent[] = []): MatchEvent[] {
+  const eventsBySequence = new Map(current.map((event) => [event.sequence, event]));
+  for (const event of incoming) {
+    const previous = eventsBySequence.get(event.sequence);
+    eventsBySequence.set(event.sequence, {
+      ...previous,
+      ...event,
+      teamId: event.teamId ?? previous?.teamId,
+      playerId: event.playerId ?? previous?.playerId,
+      playerName: event.playerName ?? previous?.playerName,
+      metadata: event.metadata ?? previous?.metadata,
+      createdAt: event.createdAt ?? previous?.createdAt,
+    });
+  }
+  return [...eventsBySequence.values()].sort((a, b) => a.sequence - b.sequence);
+}
+
 function mergeFixture(current: Fixture | undefined, incoming: Fixture): Fixture {
   if (!current) return incoming;
   const useIncomingClock = incoming.virtualSecond >= current.virtualSecond;
   const status = statusRank(current.status) > statusRank(incoming.status) ? current.status : incoming.status;
+  const matchEvents = mergeMatchEvents(current.matchEvents, incoming.matchEvents);
+  const goalEvents = matchEvents.length
+    ? matchEvents.filter((event) => event.eventType === "GOAL").map((event) => ({
+      sequence: event.sequence,
+      minute: event.virtualMinute,
+      teamId: event.teamId ?? null,
+      playerName: event.playerName ?? null,
+      createdAt: event.createdAt ?? new Date().toISOString(),
+    }))
+    : incoming.goalEvents ?? current.goalEvents;
   return {
     ...incoming,
     status,
@@ -88,6 +142,9 @@ function mergeFixture(current: Fixture | undefined, incoming: Fixture): Fixture 
     virtualSecond: Math.max(current.virtualSecond, incoming.virtualSecond),
     clockUpdatedAt: useIncomingClock ? incoming.clockUpdatedAt : current.clockUpdatedAt,
     finishedAt: current.finishedAt ?? incoming.finishedAt,
+    goalEvents,
+    matchEvents,
+    matchStatistics: incoming.matchStatistics ?? current.matchStatistics,
   };
 }
 
@@ -141,6 +198,7 @@ export function WorldDataProvider({ children }: { children: React.ReactNode }) {
   const [refreshSequence, setRefreshSequence] = useState(0);
   const [serverNow, setServerNow] = useState(0);
   const serverClockAnchor = useRef({ serverMs: 0, performanceMs: 0 });
+  const latestEventSequenceByFixture = useRef(new Map<string, number>());
 
   useEffect(() => {
     let stopped = false;
@@ -225,46 +283,98 @@ export function WorldDataProvider({ children }: { children: React.ReactNode }) {
     .join(",");
 
   useEffect(() => {
+    for (const league of overview?.leagues ?? []) {
+      for (const fixture of league.roundFixtures) {
+        const latestSequence = fixture.matchEvents?.reduce(
+          (latest, event) => Math.max(latest, event.sequence),
+          0,
+        ) ?? 0;
+        latestEventSequenceByFixture.current.set(
+          fixture.id,
+          Math.max(latestEventSequenceByFixture.current.get(fixture.id) ?? 0, latestSequence),
+        );
+      }
+    }
+  }, [overview]);
+
+  useEffect(() => {
     if (!wsUrl || !selectedLiveFixtureIds) return;
-    const sockets = selectedLiveFixtureIds.split(",").map((fixtureId) => {
-      const socket = new WebSocket(wsUrl);
-      socket.addEventListener("open", () => {
-        socket.send(JSON.stringify({ type: "SUBSCRIBE_MATCH", fixtureId }));
-      });
-      socket.addEventListener("message", (message) => {
-        try {
-          const payload = JSON.parse(String(message.data));
-          if (payload.type !== "MATCH_EVENT" || payload.fixtureId !== fixtureId) return;
-          const event = payload.event;
-          const metadata = event.metadata ?? {};
-          const isMatchEnd = event.eventType === "MATCH_END";
-          setOverview((current) => {
-            if (!current) return current;
-            return {
-              ...current,
-              leagues: current.leagues.map((league) => ({
-                ...league,
-                roundFixtures: league.roundFixtures.map((fixture) => fixture.id !== fixtureId ? fixture : mergeFixture(fixture, {
-                  ...fixture,
-                  status: isMatchEnd ? "FINISHED" : "LIVE",
-                  matchStatus: isMatchEnd ? "FINISHED" : fixture.matchStatus,
-                  homeScore: metadata.homeScore ?? metadata.finalHomeScore ?? fixture.homeScore,
-                  awayScore: metadata.awayScore ?? metadata.finalAwayScore ?? fixture.awayScore,
-                  virtualSecond: event.virtualSecond ?? fixture.virtualSecond,
-                  clockUpdatedAt: new Date().toISOString(),
-                  finishedAt: isMatchEnd ? new Date().toISOString() : fixture.finishedAt,
+    const connections = selectedLiveFixtureIds.split(",").map((fixtureId) => {
+      let socket: WebSocket | undefined;
+      let retryTimer: ReturnType<typeof setTimeout> | undefined;
+      let retryDelay = 1000;
+      let stopped = false;
+
+      const connect = () => {
+        if (stopped) return;
+        socket = new WebSocket(wsUrl);
+        socket.addEventListener("open", () => {
+          retryDelay = 1000;
+          socket?.send(JSON.stringify({
+            type: "SUBSCRIBE_MATCH",
+            fixtureId,
+            lastSequence: latestEventSequenceByFixture.current.get(fixtureId) ?? 0,
+          }));
+        });
+        socket.addEventListener("message", (message) => {
+          try {
+            const payload = JSON.parse(String(message.data));
+            if (payload.type !== "MATCH_EVENT" || payload.fixtureId !== fixtureId) return;
+            const event = payload.event as MatchEvent;
+            if (!event || !Number.isInteger(event.sequence) || typeof event.eventType !== "string") {
+              throw new Error("Invalid match event shape.");
+            }
+            const createdAt = event.createdAt ?? new Date().toISOString();
+            const metadata = event.metadata ?? {};
+            latestEventSequenceByFixture.current.set(
+              fixtureId,
+              Math.max(latestEventSequenceByFixture.current.get(fixtureId) ?? 0, event.sequence),
+            );
+            const isMatchEnd = event.eventType === "MATCH_END";
+            setOverview((current) => {
+              if (!current) return current;
+              return {
+                ...current,
+                leagues: current.leagues.map((league) => ({
+                  ...league,
+                  roundFixtures: league.roundFixtures.map((fixture) => fixture.id !== fixtureId ? fixture : mergeFixture(fixture, {
+                    ...fixture,
+                    status: isMatchEnd ? "FINISHED" : "LIVE",
+                    matchStatus: isMatchEnd ? "FINISHED" : fixture.matchStatus,
+                    homeScore: typeof metadata.homeScore === "number"
+                      ? metadata.homeScore
+                      : typeof metadata.finalHomeScore === "number" ? metadata.finalHomeScore : fixture.homeScore,
+                    awayScore: typeof metadata.awayScore === "number"
+                      ? metadata.awayScore
+                      : typeof metadata.finalAwayScore === "number" ? metadata.finalAwayScore : fixture.awayScore,
+                    virtualSecond: event.virtualSecond ?? fixture.virtualSecond,
+                    clockUpdatedAt: createdAt,
+                    finishedAt: isMatchEnd ? createdAt : fixture.finishedAt,
+                    matchEvents: mergeMatchEvents(fixture.matchEvents, [{ ...event, createdAt }]),
+                  })),
                 })),
-              })),
-            };
-          });
-          if (isMatchEnd) setRefreshSequence((sequence) => sequence + 1);
-        } catch {
-          setError("A live-match event could not be read.");
-        }
-      });
-      return socket;
+              };
+            });
+            if (isMatchEnd) setRefreshSequence((sequence) => sequence + 1);
+          } catch {
+            setError("A live-match event could not be read.");
+          }
+        });
+        socket.addEventListener("close", () => {
+          if (stopped) return;
+          retryTimer = setTimeout(connect, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 30_000);
+        });
+      };
+
+      connect();
+      return () => {
+        stopped = true;
+        if (retryTimer) clearTimeout(retryTimer);
+        socket?.close();
+      };
     });
-    return () => sockets.forEach((socket) => socket.close());
+    return () => connections.forEach((disconnect) => disconnect());
   }, [selectedLiveFixtureIds]);
 
   const value = useMemo<WorldDataValue>(() => ({
