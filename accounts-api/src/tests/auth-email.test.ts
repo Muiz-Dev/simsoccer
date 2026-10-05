@@ -16,7 +16,9 @@ test('renders a centered, white authentication email without card decoration', (
 
   assert.match(html, /background-color:#ffffff/);
   assert.match(html, /text-align:center/);
+  assert.match(html, /font-size:24px/);
   assert.match(html, /12345678/);
   assert.match(html, /Only enter this code on SimSoccer/);
+  assert.doesNotMatch(html, /check your spam or junk folder/i);
   assert.doesNotMatch(html, /#f3f5f1|border-top:|<hr\b/i);
 });

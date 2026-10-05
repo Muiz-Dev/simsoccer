@@ -19,7 +19,7 @@ export function AuthEmail({ title, preheader, message, code, securityNote }: Aut
           <Heading as="h1" style={{ margin: '0 0 12px', color: '#18231d', fontSize: '21px', lineHeight: '1.35', fontWeight: 600, textAlign: 'center' }}>{title}</Heading>
           <Text style={{ margin: 0, color: '#39483f', fontSize: '15px', lineHeight: '1.6', fontWeight: 400, textAlign: 'center' }}>{message}</Text>
           {code ? (
-            <Text style={{ margin: '24px 0', color: '#0b442e', fontSize: '28px', lineHeight: '1.35', fontWeight: 600, letterSpacing: '4px', textAlign: 'center' }}>
+            <Text style={{ margin: '24px 0', color: '#0b442e', fontSize: '24px', lineHeight: '1.35', fontWeight: 600, letterSpacing: '3px', textAlign: 'center' }}>
               {code}
             </Text>
           ) : null}

@@ -276,6 +276,8 @@ export default function AuthFlow() {
           <h1 id="auth-title">{title}</h1>
           {codeStage || stage === 'recovery' ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
               : null}
+          {codeStage || stage === 'recovery' ? <p className={styles.introText}>If it&apos;s not in your inbox, check your spam or junk folder.</p>
+              : null}
         </div>
 
         {stage === 'signin' || stage === 'signup' ? (
