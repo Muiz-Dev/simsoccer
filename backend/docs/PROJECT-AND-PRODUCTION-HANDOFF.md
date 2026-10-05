@@ -1,8 +1,8 @@
 # SimSoccer Project and Production Handoff
 
-**Snapshot date:** 2026-10-05  
-**Repository:** `Muiz-Dev/simsoccer`  
-**Local `main` revision checked:** `e7cf023`  
+- **Snapshot date:** 2026-10-05
+- **Repository:** `Muiz-Dev/simsoccer`
+- **Local `main` revision checked:** `e7cf023`
 **EC2 checkout revision checked:** `aaea6a7`
 
 This is an operational snapshot of the project and its production environment.
