@@ -66,6 +66,9 @@ type Selection = {
   currentOdds: string;
   priceChanged: boolean;
   status: string;
+  fixtureStatus?: string;
+  homeScore?: number | null;
+  awayScore?: number | null;
 };
 type BookingResponse = {
   code: string;
@@ -179,6 +182,16 @@ function findOutcome(fixture: Fixture, marketType: string, outcomeCode: string) 
   return market && outcome ? { market, outcome } : null;
 }
 
+function isFixtureInPlay(status: string | undefined) {
+  return status === "LIVE" || status === "HALFTIME" || status === "SECOND_HALF";
+}
+
+function fixtureStateLabel(status: string | undefined) {
+  if (status === "HALFTIME") return "Half-time";
+  if (status === "FINISHED") return "Full time";
+  return "Live";
+}
+
 function selectionFromMarket(fixture: Fixture, market: Market, outcome: Outcome): Selection {
   const currentOdds = Number(outcome.odds).toFixed(2);
   return {
@@ -197,6 +210,9 @@ function selectionFromMarket(fixture: Fixture, market: Market, outcome: Outcome)
     currentOdds,
     priceChanged: false,
     status: market.status === "OPEN" && outcome.status === "OPEN" && fixture.status === "SCHEDULED" ? "OPEN" : "SUSPENDED",
+    fixtureStatus: fixture.status,
+    homeScore: fixture.homeScore,
+    awayScore: fixture.awayScore,
   };
 }
 
@@ -327,6 +343,9 @@ export default function BettingDesk() {
       currentOdds,
       priceChanged: Number(currentOdds) !== Number(selection.quotedOdds),
       status: market.status === "OPEN" && outcome.status === "OPEN" && fixture.status === "SCHEDULED" ? "OPEN" : "SUSPENDED",
+      fixtureStatus: fixture.status,
+      homeScore: fixture.homeScore,
+      awayScore: fixture.awayScore,
     };
   }
 
@@ -430,6 +449,8 @@ export default function BettingDesk() {
       idempotencyKey.current = null;
       ticketCode.current = null;
       setAcceptedBet(accepted);
+      setSelections([]);
+      setStake("");
       setSavedCode("");
       setMessage("Bet accepted.");
       setSlipView("ticket");
@@ -765,6 +786,13 @@ export default function BettingDesk() {
                         <span aria-hidden="true">v</span>
                         <strong>{fixture.awayTeam?.shortName ?? fixture.awayTeam?.name ?? "Away"}</strong>
                       </div>
+                      {isFixtureInPlay(fixture.status) || fixture.status === "FINISHED" ? (
+                        <span className={styles.fixtureLiveState}>
+                          {isFixtureInPlay(fixture.status) ? <span className={styles.liveDot} aria-hidden="true" /> : null}
+                          {fixtureStateLabel(fixture.status)}
+                          <strong>{fixture.homeScore ?? "—"} – {fixture.awayScore ?? "—"}</strong>
+                        </span>
+                      ) : null}
                     </div>
                     <div className={styles.desktopQuickMarkets}>
                       {QUICK_MARKETS.map((quick) => renderOddsButton(fixture, quick.marketType, quick.outcomeCode, quick.label))}
@@ -840,6 +868,13 @@ export default function BettingDesk() {
                           <div>
                             <span>{selection.leagueName} · {formatLocalDateTime(selection.scheduledAt, timeZone)}</span>
                             <strong>{selection.homeName} v {selection.awayName}</strong>
+                            {isFixtureInPlay(selection.fixtureStatus) || selection.fixtureStatus === "FINISHED" ? (
+                              <span className={styles.selectionFixtureState}>
+                                {isFixtureInPlay(selection.fixtureStatus) ? <span className={styles.liveDot} aria-hidden="true" /> : null}
+                                {fixtureStateLabel(selection.fixtureStatus)}
+                                <strong>{selection.homeScore ?? "—"} – {selection.awayScore ?? "—"}</strong>
+                              </span>
+                            ) : null}
                           </div>
                           <button type="button" aria-label={`Remove ${selection.homeName} versus ${selection.awayName}`} onClick={() => removeSelection(selection.fixtureId)}>
                             <CloseIcon fontSize="small" />
@@ -879,8 +914,13 @@ export default function BettingDesk() {
                       <span>Potential return</span>
                       <strong>{potentialReturn}</strong>
                     </div>
-                    <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()}>
-                      {placingBet ? "Checking selection" : "Place play-money bet"}
+                    <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()} aria-busy={placingBet}>
+                      {placingBet ? (
+                        <span className={styles.placeBetProgress}>
+                          <span className={styles.placeBetSpinner} aria-hidden="true" />
+                          Placing bet
+                        </span>
+                      ) : "Place bet"}
                     </button>
                   </>
                 ) : (

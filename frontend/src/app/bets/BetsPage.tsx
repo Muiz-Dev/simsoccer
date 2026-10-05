@@ -73,7 +73,12 @@ async function readTicketPage(token: string, status: "OPEN" | "SETTLED", page: n
 }
 
 function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView?: boolean }) {
-  const showScore = (status: string) => ["LIVE", "HALFTIME", "FINISHED"].includes(status);
+  const hasLiveFixture = ticket.selections.some((selection) =>
+    ["LIVE", "HALFTIME", "SECOND_HALF"].includes(selection.fixture?.status ?? ""),
+  );
+  const ticketStatus = ticket.status === "PENDING"
+    ? hasLiveFixture ? "In play" : "Open"
+    : formatStatus(ticket.status);
   return (
     <article className={`${styles.ticket} ${publicView ? styles.publicTicket : ""}`} id={ticket.id ? `ticket-${ticket.id}` : undefined}>
       <header className={styles.ticketHeader}>
@@ -81,7 +86,7 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
           <time dateTime={ticket.placedAt}>{new Date(ticket.placedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</time>
           <span>Play-money ticket</span>
         </div>
-        <span className={`${styles.status} ${styles[`status${ticket.status}`] ?? ""}`}>{formatStatus(ticket.status)}</span>
+        <span className={`${styles.status} ${styles[`status${ticket.status}`] ?? ""}`}>{ticketStatus}</span>
       </header>
       <ol className={styles.legs}>
         {ticket.selections.map((selection, index) => (
@@ -89,15 +94,36 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
             <div className={styles.match}>
               <strong>{selection.fixture ? `${selection.fixture.homeTeam} v ${selection.fixture.awayTeam}` : "Match details unavailable"}</strong>
               {selection.fixture ? (
-                <span>
-                  {showScore(selection.fixture.status)
-                    ? `${selection.fixture.homeScore ?? 0} – ${selection.fixture.awayScore ?? 0}`
-                    : new Date(selection.fixture.scheduledAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
-                </span>
+                <div className={styles.fixtureState}>
+                  {["LIVE", "HALFTIME", "SECOND_HALF"].includes(selection.fixture.status) ? (
+                    <>
+                      <span className={styles.liveLabel}>
+                        <span className={styles.liveDot} aria-hidden="true" />
+                        {selection.fixture.status === "HALFTIME" ? "Half-time" : "Live"}
+                      </span>
+                      <strong className={styles.score}>
+                        {selection.fixture.homeScore ?? 0} – {selection.fixture.awayScore ?? 0}
+                      </strong>
+                    </>
+                  ) : selection.fixture.status === "FINISHED" ? (
+                    <>
+                      <span className={styles.finishedLabel}>Full time</span>
+                      <strong className={styles.score}>
+                        {selection.fixture.homeScore ?? 0} – {selection.fixture.awayScore ?? 0}
+                      </strong>
+                    </>
+                  ) : (
+                    <span>
+                      {selection.fixture.status === "CANCELLED" || selection.fixture.status === "POSTPONED"
+                        ? formatStatus(selection.fixture.status)
+                        : new Date(selection.fixture.scheduledAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
+                    </span>
+                  )}
+                </div>
               ) : null}
             </div>
             <div className={styles.pick}>
-              <span>{selection.marketType} · {selection.displayName}</span>
+              <span>{selection.displayName}</span>
               <strong>{Number(selection.odds).toFixed(2)}</strong>
             </div>
             {selection.status === "WON" ? (
@@ -108,11 +134,11 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
               <span className={`${styles.legStatus} ${styles.legLost}`} role="img" aria-label="Lost" title="Lost">
                 <HighlightOffIcon aria-hidden="true" />
               </span>
-            ) : (
+            ) : selection.status === "VOID" ? (
               <span className={`${styles.legStatus} ${styles[`status${selection.status}`] ?? ""}`}>
-                {formatStatus(selection.status)}
+                Void
               </span>
-            )}
+            ) : <span className={styles.legStatus} aria-hidden="true" />
           </li>
         ))}
       </ol>
@@ -138,6 +164,7 @@ export default function BetsPage() {
   const [historyError, setHistoryError] = useState("");
   const [tab, setTab] = useState<"OPEN" | "SETTLED">("OPEN");
   const historyRequestId = useRef(0);
+  const ticketHistoryPages = useRef(1);
   const [ticketCode, setTicketCode] = useState("");
   const [lookedUpCode, setLookedUpCode] = useState("");
   const [publicTicket, setPublicTicket] = useState<Ticket | null>(null);
@@ -173,6 +200,41 @@ export default function BetsPage() {
       historyRequestId.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (!signedIn) return;
+    let stopped = false;
+    let refreshing = false;
+    const refreshOpenTickets = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const token = await restoreAccessToken();
+        if (!token) throw new Error("Sign in again to view your tickets.");
+        const pageCount = ticketHistoryPages.current;
+        const pages = await Promise.all(
+          Array.from({ length: pageCount }, (_, index) => readTicketPage(token, tab, index + 1)),
+        );
+        if (stopped) return;
+        const latestPage = pages[pages.length - 1];
+        const uniqueTickets = new Map(pages.flatMap((page) => page.tickets).map((ticket) => [ticket.id, ticket] as const));
+        setTickets([...uniqueTickets.values()]);
+        setTicketCount(latestPage?.total ?? 0);
+        setOpenTicketCount(latestPage?.openCount ?? 0);
+        setHasMoreTickets(latestPage?.hasMore ?? false);
+        setHistoryError("");
+      } catch (cause) {
+        if (!stopped) setHistoryError(cause instanceof Error ? cause.message : "Ticket updates could not be loaded.");
+      } finally {
+        refreshing = false;
+      }
+    };
+    const timer = window.setInterval(() => void refreshOpenTickets(), 15_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [signedIn, tab]);
 
   useEffect(() => {
     if (loadingHistory && signedIn) return;
@@ -219,6 +281,7 @@ export default function BetsPage() {
     setLoadingMore(false);
     setTab(nextTab);
     setTickets([]);
+    ticketHistoryPages.current = 1;
     setTicketCount(0);
     setHasMoreTickets(false);
     setHistoryError("");
@@ -257,6 +320,7 @@ export default function BetsPage() {
       setTicketCount(result.total);
       setOpenTicketCount(result.openCount);
       setHasMoreTickets(result.hasMore);
+      ticketHistoryPages.current = nextTicketPage;
       setNextTicketPage((current) => current + 1);
     } catch (cause) {
       if (requestId === historyRequestId.current) {
@@ -284,7 +348,6 @@ export default function BetsPage() {
         <Link className={styles.backLink} href="/betting"><ArrowBackIcon fontSize="small" /> Betting desk</Link>
         <div className={styles.title}>
           <h1>My bets</h1>
-          <p>Track your open tickets and results.</p>
         </div>
 
         {signedIn === false ? (
@@ -338,10 +401,6 @@ export default function BetsPage() {
 
         {signedIn ? (
           <section className={styles.history} aria-labelledby="history-title">
-            <div className={styles.historyHeading}>
-              <h2 id="history-title">Your tickets</h2>
-              <Link href="/account">Account</Link>
-            </div>
             <div className={styles.tabs} role="tablist" aria-label="Bet ticket status">
               <button type="button" role="tab" aria-selected={tab === "OPEN"} onClick={() => void changeTicketTab("OPEN")}>
                 Open <span className={styles.tabCount}>{openTicketCount}</span>

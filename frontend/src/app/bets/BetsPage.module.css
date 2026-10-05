@@ -302,6 +302,38 @@
 
 .match span { font-variant-numeric: tabular-nums; }
 
+.fixtureState {
+  display: flex;
+  min-height: 17px;
+  align-items: center;
+  gap: 8px;
+}
+
+.liveLabel,
+.finishedLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.liveLabel { color: #147347 !important; font-weight: 700; }
+.finishedLabel { color: var(--muted) !important; }
+
+.liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1d9a5d;
+  box-shadow: 0 0 0 3px rgb(29 154 93 / 14%);
+}
+
+.score {
+  color: var(--ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .pick {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
