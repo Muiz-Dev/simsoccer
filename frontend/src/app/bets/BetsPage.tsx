@@ -138,7 +138,7 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
               <span className={`${styles.legStatus} ${styles[`status${selection.status}`] ?? ""}`}>
                 Void
               </span>
-            ) : <span className={styles.legStatus} aria-hidden="true" />
+            ) : <span className={styles.legStatus} aria-hidden="true" />}
           </li>
         ))}
       </ol>
