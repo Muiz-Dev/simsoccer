@@ -99,11 +99,21 @@ When real deposits and withdrawals are introduced, add an audited funding and do
 
 ## Current implementation and production status
 
-The standalone `settlement-api/` service, worker, rules, admin API, and `/admin/settlement` page are implemented locally. The world backend no longer starts the previous settlement worker or enqueues settlement jobs. Migrations `0010_graceful_james_howlett`, `0011_married_bill_hollister`, and `0012_settlement_retry_backoff` add settlement activity, fixture/round records, per-leg grading, wallet idempotency, and bounded retry scheduling.
+The standalone `settlement-api/` service, worker, rules, admin API, and `/admin/settlement` page are implemented. The world backend no longer starts the previous settlement worker or enqueues settlement jobs. Migrations `0010_graceful_james_howlett`, `0011_married_bill_hollister`, and `0012_settlement_retry_backoff` add settlement activity, fixture/round records, per-leg grading, wallet idempotency, and bounded retry scheduling.
 
-The production EC2 services `simsoccer-runtime` and `simsoccer-accounts` are currently stopped at the user's request. A fresh pre-migration custom-format backup was verified with `pg_restore --list` and successfully restored to the isolated `simsoccer_settlement_rehearsal_20261005` database. The backup is `/home/ubuntu/simsoccer-backups/simsoccer-settlement-pre-migration-20261005T131945048Z.dump` (51,711,585 bytes; SHA-256 `ec984d73bfab7d957536d2b3396152d78044e342c0a07497a9ced19da80e7ef1`). Migrations `0010`–`0012` have not yet been rehearsed or applied; the new code has not been deployed, Nginx has not been changed, and production has not been restarted. Do not tell operators that production tickets have been settled or that deployment is complete.
+### Production deployment — 5 October 2026
 
-Local verification passes: settlement rules tests and API TypeScript build, backend TypeScript check, and settlement admin page TypeScript/lint checks. The isolated database has been restored but migrations `0010`–`0012` and the settlement scan have not yet been rehearsed against it. Do not resume production services or apply production migrations until that rehearsal is complete.
+- Release `77739175483e3402786477c822d477ea12487e97` is on EC2 and `main`.
+- Before migrating, created and verified `/home/ubuntu/simsoccer-backups/simsoccer-settlement-pre-migration-20261005T131945048Z.dump` (51,711,585 bytes; SHA-256 `ec984d73bfab7d957536d2b3396152d78044e342c0a07497a9ced19da80e7ef1`) with `pg_restore --list`, and restored it to the isolated `simsoccer_settlement_rehearsal_20261005` database. The production migrations were then applied with the normal migration command; entries 0010–0012 were verified in the database.
+- EC2 builds passed for the world backend, Accounts API, and settlement API; settlement rule tests passed. Nginx was updated for `/api/settlement/`, its configuration test passed, and public settlement health returned successfully.
+- PM2 `simsoccer-runtime`, `simsoccer-accounts`, and `simsoccer-settlement` are online. World and Accounts API readiness checks pass; the world reports Season 2 Round 20 as `RUNNING`. Do not infer coordinator leadership from the API process's `isCoordinatorLeader` field: coordinator is a separate supervised child process.
+- The first settlement scan exposed an invalid SQL alias in the round summary. The fix is in release `7773917`; after rebuilding/restarting the settlement service, its readiness reports a successful scan, zero consecutive errors, and the active advisory-lock leader.
+- Read-only ledger consistency check: the four previously pending tickets are now `LOST`; all four have settlement records, total payouts are 0.00 virtual credits, there are no settlement payout/refund ledger entries, and no ticket/settlement status mismatches were found. The fixture register contains 19 `SETTLED` and 1,721 `NO_BETS` records. No production test wager or world reset was performed.
+- `https://simsoccer.vercel.app/admin/settlement` returns HTTP 200. Authenticated admin data rendering requires an authorized admin session and was not simulated.
+
+The backup restore and migration rehearsal database were created, but migrations were applied directly to production using the normal command rather than rehearsed on the restored copy first. The production backup is retained for recovery. No cash deposits, withdrawals, or real-money accounting were added; all reported amounts remain virtual credits.
+
+Local verification passed: settlement rule tests and API TypeScript build, backend TypeScript check, and settlement admin page TypeScript/lint checks. EC2 builds also passed as recorded above.
 
 ### Service configuration and routing
 
@@ -142,17 +152,17 @@ The admin browser calls `https://simapi.muizdev.xyz/api/settlement/...` with the
 - **Won:** all selections won; payout is credited once.
 - **Void:** applicable selections were voided; the resulting refund follows the settlement rules.
 
-## Safe deployment and live verification
+## Ongoing operational safeguards
 
-Do not reset the world or create test bets in production. Keep both existing PM2 services stopped during deployment and migration; do not start the old backend against an unmigrated schema.
+Do not reset the world or create test bets in production. Keep settlement isolated in its own PM2 process; never restore fixture settlement as a child of the world supervisor.
 
-1. Build and test the exact release revision. Restore a recent production backup into an isolated database and rehearse migrations `0010`–`0012` plus settlement rules there.
+For future schema releases:
+
+1. Build and test the exact release revision. Restore a recent production backup into an isolated database and rehearse pending migrations there.
 2. On EC2, make a fresh custom-format PostgreSQL backup; verify it with `pg_restore --list` and record its SHA-256 before migration. Retain the backup outside the application checkout.
-3. Confirm the migration journal is at the expected prior version, inspect the target database and confirm no migrations `0010`–`0012` are already partially applied, then apply the three forward migrations while services remain stopped.
-4. Deploy the exact tested release to `/home/ubuntu/simsoccer`. Build `backend`, `accounts-api`, `frontend` (Vercel deploys from `main`), and `settlement-api` without invoking an unplanned migration.
-5. Add the Nginx settlement route, run `sudo nginx -t`, then reload Nginx. Start `simsoccer-settlement` first and confirm `/api/settlement/health/ready` reports database readiness and a recent scan.
-6. Start `simsoccer-accounts` and then `simsoccer-runtime`; verify PM2, world readiness/status, accounts readiness, Nginx, and the settlement admin desk. Confirm the world continues from its existing round; never run world reset.
-7. Check pre-existing pending tickets. For each settled ticket, verify every selection, the settlement row, wallet balance change, and exactly one idempotent wallet ledger entry. Confirm no ticket is paid before all its fixtures finish.
-8. Monitor settlement worker errors/retry times and verify one real completed fixture end-to-end before considering rollout complete. If any integrity mismatch appears, stop only the settlement process; preserve world/database state and investigate before resuming it.
+3. Confirm the migration journal is at the expected prior version and no migrations are partially applied, then apply forward migrations while services are stopped if the schema requires it.
+4. Deploy/build each service independently. Update Nginx only after checking for duplicate server blocks, run `sudo nginx -t`, and reload it.
+5. Start settlement first and confirm readiness plus a recent successful scan; then start Accounts API and world runtime. Verify PM2, API health, and world progression without resetting the world.
+6. Check any pending tickets and compare selections, settlement rows, wallet changes, and idempotent ledger entries. If integrity mismatches occur, stop only the settlement process and investigate before resuming it.
 
 Migrations are additive and have no automated rollback. If application rollback is required, stop the new settlement worker first and roll back application code only; do not drop settlement data or reverse ledger entries. Any payout correction must be a reviewed compensating transaction, never a direct rewrite or repeated payout.
