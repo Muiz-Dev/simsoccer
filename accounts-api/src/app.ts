@@ -15,6 +15,16 @@ import { redis } from './redis.js';
 import { challengeSchema, emailSchema, passwordChangeSchema, passwordSchema, profileSchema } from './validation.js';
 
 const allowedOrigins = new Set(env.APP_ALLOWED_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean));
+
+function createRedisStore(prefix: string): RedisStore | undefined {
+  const client = redis;
+  if (!client) return undefined;
+  return new RedisStore({
+    prefix,
+    sendCommand: (command, ...args) => client.call(command, ...args) as Promise<number>,
+  });
+}
+
 function rateLimitKey(req: Request): string {
   const parsedEmail = emailSchema.safeParse(req.body?.email);
   if (parsedEmail.success) return `email:${digestSecret(parsedEmail.data)}`;
@@ -33,10 +43,7 @@ const authLimiter = rateLimit({
   limit: 12,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  store: redis ? new RedisStore({
-    prefix: 'simsoccer:accounts:auth-limit:',
-    sendCommand: (command, ...args) => redis.call(command, ...args) as Promise<number>,
-  }) : undefined,
+  store: createRedisStore('simsoccer:accounts:auth-limit:'),
   keyGenerator: rateLimitKey,
   message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many sign-in attempts. Try again later.' },
 });
@@ -45,10 +52,7 @@ const accountWriteLimiter = rateLimit({
   limit: 12,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  store: redis ? new RedisStore({
-    prefix: 'simsoccer:accounts:write-limit:',
-    sendCommand: (command, ...args) => redis.call(command, ...args) as Promise<number>,
-  }) : undefined,
+  store: createRedisStore('simsoccer:accounts:write-limit:'),
   keyGenerator: rateLimitKey,
   message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many account requests. Try again later.' },
 });
@@ -57,10 +61,7 @@ const refreshLimiter = rateLimit({
   limit: 30,
   standardHeaders: 'draft-8',
   legacyHeaders: false,
-  store: redis ? new RedisStore({
-    prefix: 'simsoccer:accounts:refresh-limit:',
-    sendCommand: (command, ...args) => redis.call(command, ...args) as Promise<number>,
-  }) : undefined,
+  store: createRedisStore('simsoccer:accounts:refresh-limit:'),
   message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many session refresh requests. Try again later.' },
 });
 

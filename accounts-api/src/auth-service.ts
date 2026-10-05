@@ -10,7 +10,7 @@ import {
   requestContextHash,
 } from './auth-crypto.js';
 
-const passwordOptions = { type: argon2.argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 };
+const passwordOptions = { type: argon2.argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 const challengeLifetime = 10 * 60 * 1000;
 const sessionLifetime = 30 * 24 * 60 * 60 * 1000;
 const passwordWorkLimit = 2;
@@ -145,15 +145,16 @@ export async function authenticatePassword(email: string, password: string): Pro
   challenge: ChallengeResult | null;
   needsVerification: boolean;
 }> {
-  const [user] = await database<AuthUser & { password_hash: string | null; is_email_verified: boolean }[]>`
+  const [user] = await database<(AuthUser & { password_hash: string | null; is_email_verified: boolean })[]>`
     SELECT id, email, role, first_name, last_name, phone, password_hash, is_email_verified
     FROM users WHERE lower(email) = ${email} LIMIT 1
   `;
-  if (!user?.password_hash) {
+  const passwordHash = user?.password_hash;
+  if (!passwordHash) {
     await runPasswordWork(() => argon2.hash(password, passwordOptions));
     return { challenge: null, needsVerification: false };
   }
-  if (!await runPasswordWork(() => argon2.verify(user.password_hash, password))) {
+  if (!await runPasswordWork(() => argon2.verify(passwordHash, password))) {
     return { challenge: null, needsVerification: false };
   }
   if (!user.is_email_verified) {
@@ -268,12 +269,6 @@ export async function createSession(
         ${requestContextHash(userAgent)}, ${requestContextHash(ip)}
       )
     `;
-    if (current.device_id) {
-      await tx`
-        UPDATE auth_devices SET last_seen_at = now()
-        WHERE id = ${current.device_id} AND revoked_at IS NULL
-      `;
-    }
     const [currentWallet] = await tx<{ balance: string; currency: string }[]>`
       SELECT balance::text, currency FROM wallets WHERE user_id = ${userId}
     `;
@@ -329,7 +324,7 @@ export async function refreshSession(
     if (current.revoked_at || current.expires_at.getTime() <= Date.now()) {
       return { status: 'invalid' as const };
     }
-    const [user] = await tx<AuthUser & { is_email_verified: boolean }[]>`
+    const [user] = await tx<(AuthUser & { is_email_verified: boolean })[]>`
       SELECT id, email, role, first_name, last_name, phone, is_email_verified
       FROM users WHERE id = ${current.user_id} LIMIT 1
     `;
@@ -342,6 +337,12 @@ export async function refreshSession(
         ${requestContextHash(userAgent)}, ${requestContextHash(ip)}
       )
     `;
+    if (current.device_id) {
+      await tx`
+        UPDATE auth_devices SET last_seen_at = now()
+        WHERE id = ${current.device_id} AND revoked_at IS NULL
+      `;
+    }
     const [wallet] = await tx<{ balance: string; currency: string }[]>`
       SELECT balance::text, currency FROM wallets WHERE user_id = ${current.user_id}
     `;
@@ -430,7 +431,8 @@ export async function changePassword(userId: string, currentPassword: string, ne
     const [user] = await tx<{ password_hash: string | null; email: string }[]>`
       SELECT password_hash, email FROM users WHERE id = ${userId} AND is_email_verified = true FOR UPDATE
     `;
-    if (!user?.password_hash || !await runPasswordWork(() => argon2.verify(user.password_hash, currentPassword))) {
+    const passwordHash = user?.password_hash;
+    if (!passwordHash || !await runPasswordWork(() => argon2.verify(passwordHash, currentPassword))) {
       return null;
     }
     const newHash = await runPasswordWork(() => argon2.hash(newPassword, passwordOptions));
