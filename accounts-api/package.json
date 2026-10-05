@@ -10,7 +10,8 @@
     "test": "tsx --test src/tests/*.test.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.117.2",
+    "argon2": "^0.45.1",
+    "jose": "^6.2.12",
     "bullmq": "^6.3.10",
     "cors": "^2.8.6",
     "decimal.js": "^10.6.0",
@@ -25,7 +26,6 @@
     "react-dom": "^19.2.8",
     "react-email": "6.11.0",
     "resend": "^6.31.0",
-    "standardwebhooks": "^1.1.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {

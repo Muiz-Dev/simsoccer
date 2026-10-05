@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, integer, boolean, timestamp, numeric, jsonb, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, integer, boolean, timestamp, numeric, jsonb, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 export const leagues = pgTable('leagues', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -263,6 +264,8 @@ export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   authSubject: text('auth_subject').unique(),
   email: text('email').notNull().unique(),
+  passwordHash: text('password_hash'),
+  isEmailVerified: boolean('is_email_verified').notNull().default(false),
   firstName: text('first_name'),
   lastName: text('last_name'),
   phone: text('phone'),
@@ -271,7 +274,58 @@ export const users = pgTable('users', {
   role: text('role').notNull().default('USER'), // USER, ADMIN, SUPER_ADMIN
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex('users_email_lower_unique').on(sql`lower(${table.email})`),
+]);
+
+export const authChallenges = pgTable('auth_challenges', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  challengeHash: text('challenge_hash').notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  purpose: text('purpose').notNull(),
+  codeHash: text('code_hash').notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+}, (table) => [
+  uniqueIndex('auth_challenges_hash_unique').on(table.challengeHash),
+  index('auth_challenges_expiry_idx').on(table.expiresAt),
+]);
+
+export const authDevices = pgTable('auth_devices', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  deviceTokenHash: text('device_token_hash').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),
+  revokedAt: timestamp('revoked_at'),
+}, (table) => [
+  uniqueIndex('auth_devices_user_token_unique').on(table.userId, table.deviceTokenHash),
+  index('auth_devices_user_idx').on(table.userId),
+]);
+
+export const authSessions = pgTable('auth_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  familyId: uuid('family_id').notNull(),
+  deviceId: uuid('device_id').references(() => authDevices.id, { onDelete: 'set null' }),
+  refreshTokenHash: text('refresh_token_hash').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  lastUsedAt: timestamp('last_used_at').notNull().defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+  revokedAt: timestamp('revoked_at'),
+  consumedAt: timestamp('consumed_at'),
+  userAgentHash: text('user_agent_hash'),
+  ipHash: text('ip_hash'),
+}, (table) => [
+  uniqueIndex('auth_sessions_refresh_hash_unique').on(table.refreshTokenHash),
+  index('auth_sessions_user_idx').on(table.userId),
+  index('auth_sessions_family_idx').on(table.familyId),
+  index('auth_sessions_expiry_idx').on(table.expiresAt),
+  index('auth_sessions_device_idx').on(table.deviceId),
+]);
 
 export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().defaultRandom(),

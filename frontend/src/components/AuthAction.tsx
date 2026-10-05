@@ -2,22 +2,20 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
+import { restoreAccessToken, subscribeAuth } from "@/lib/auth-client";
 
 export default function AuthAction() {
   const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
     let active = true;
-    void supabase.auth.getUser().then(({ data }) => {
-      if (active) setSignedIn(Boolean(data.user));
-    });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSignedIn(Boolean(session?.user));
-    });
+    const unsubscribe = subscribeAuth((value) => setSignedIn(value));
+    void restoreAccessToken()
+      .then((token) => { if (active) setSignedIn(Boolean(token)); })
+      .catch(() => { if (active) setSignedIn(false); });
     return () => {
       active = false;
-      subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 

@@ -153,7 +153,7 @@ export async function tryAcquireCoordinatorLeadership(): Promise<boolean> {
       dedicatedLockSql = postgres(env.DATABASE_URL, {
         max: 1,
         connect_timeout: 5,
-        ssl: env.DATABASE_URL.includes('supabase.co') || env.DATABASE_URL.includes('sslmode=require') ? 'require' : false,
+        ssl: env.DATABASE_URL.includes('sslmode=require') ? 'require' : false,
       });
     }
 
