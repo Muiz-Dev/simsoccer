@@ -453,7 +453,7 @@ async function refreshRoundRecords(): Promise<void> {
       FROM fixtures GROUP BY season_id, round
     ), ticket_totals AS (
       SELECT season_id, round, count(*)::int AS ticket_count,
-        count(*) FILTER (WHERE b.status = 'PENDING')::int AS pending_ticket_count,
+        count(*) FILTER (WHERE status = 'PENDING')::int AS pending_ticket_count,
         COALESCE(sum(stake), 0)::numeric(18, 2) AS staked_credits,
         COALESCE(sum(potential_payout), 0)::numeric(18, 2) AS potential_payout_credits
       FROM (
