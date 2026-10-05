@@ -21,6 +21,13 @@
 .wallet > strong { color: var(--pitch); font-size: 24px; font-variant-numeric: tabular-nums; }
 .wallet > strong span { color: var(--muted); font-size: 11px; font-weight: 500; }
 .sectionTitle a { color: var(--pitch); font-size: 12px; text-underline-offset: 3px; }
+.sectionTitle button, .securityForm button { min-height: 36px; padding: 0 12px; border: 1px solid var(--pitch); background: var(--pitch); color: #fff; font: inherit; cursor: pointer; }
+.securityForm { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.securityForm label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.securityForm input { width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid var(--rule); background: #fff; color: var(--ink); font: inherit; }
+.securityForm input:focus-visible, .securityForm button:focus-visible, .sectionTitle button:focus-visible { outline: 2px solid var(--pitch); outline-offset: 2px; }
+.securityForm button { justify-self: start; }
+.securityForm button:disabled, .sectionTitle button:disabled { opacity: .65; cursor: wait; }
 .tableWrap { overflow-x: auto; margin-top: 12px; }
 .tableWrap table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
 .tableWrap th, .tableWrap td { padding: 10px 8px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
@@ -30,5 +37,5 @@
 .loading { display: flex; align-items: center; gap: 9px; padding: 22px 0; color: var(--muted); font-size: 13px; }
 .loading span { width: 16px; height: 16px; border: 2px solid #d9dfda; border-top-color: var(--pitch); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width: 520px) { .page { padding-inline: 16px; } .content { margin-top: 28px; } .heading h1 { font-size: 24px; } .profile dl { grid-template-columns: 1fr; gap: 12px; } .wallet > strong { font-size: 20px; } }
+@media (max-width: 520px) { .page { padding-inline: 16px; } .content { margin-top: 28px; } .heading h1 { font-size: 24px; } .profile dl { grid-template-columns: 1fr; gap: 12px; } .wallet > strong { font-size: 20px; } .securityForm { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { .loading span { animation: none; } }

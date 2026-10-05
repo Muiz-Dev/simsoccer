@@ -9,7 +9,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import { useRouter } from "next/navigation";
 import AuthAction from "@/components/AuthAction";
-import { supabase } from "@/lib/supabase/client";
+import { getAccessToken, subscribeAuth } from "@/lib/auth-client";
 import { formatLocalDateTime, formatLocalTime, useBrowserTimeZone } from "@/lib/time-zone";
 import styles from "./BettingDesk.module.css";
 
@@ -234,11 +234,15 @@ export default function BettingDesk() {
   }, [mobileSlipOpen]);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSignedIn(Boolean(session?.user));
-    });
-
-    return () => subscription.unsubscribe();
+    let active = true;
+    const unsubscribe = subscribeAuth((value) => setSignedIn(value));
+    void getAccessToken()
+      .then((token) => { if (active) setSignedIn(Boolean(token)); })
+      .catch(() => { if (active) setSignedIn(false); });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -378,28 +382,16 @@ export default function BettingDesk() {
     setMessage("");
     setPlacingBet(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+      const token = await getAccessToken();
+      if (!token) {
         router.push("/auth?next=/betting");
         return;
       }
       if (!API_URL || !ACCOUNTS_API_URL) throw new Error("Betting services are not configured. Try again later.");
 
-      const authHeaders = { Authorization: `Bearer ${session.access_token}` };
+      const authHeaders = { Authorization: `Bearer ${token}` };
       const accountResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/me`, { headers: authHeaders, cache: "no-store" });
-      if (accountResponse.status === 404) {
-        const provisionResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/provision`, {
-          method: "POST",
-          headers: { ...authHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
-        await readApiResponse<{ account: { profileComplete: boolean } }>(provisionResponse, "Account setup could not be completed.");
-      } else {
-        await readApiResponse<{ account: { profileComplete: boolean } }>(accountResponse, "Account details could not be loaded.");
-      }
-
-      const profileResponse = await fetch(`${ACCOUNTS_API_URL}/api/account/me`, { headers: authHeaders, cache: "no-store" });
-      const account = await readApiResponse<{ account: { profileComplete: boolean } }>(profileResponse, "Account details could not be loaded.");
+      const account = await readApiResponse<{ account: { profileComplete: boolean } }>(accountResponse, "Account details could not be loaded.");
       if (!account.account.profileComplete) {
         router.push("/auth?next=/betting");
         return;

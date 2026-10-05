@@ -135,7 +135,6 @@ export async function checkDependenciesHealth(): Promise<{ postgres: boolean; re
       connectTimeout: 2000,
       maxRetriesPerRequest: 1,
       retryStrategy: () => null,
-      tls: env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     });
     const pong = await redisClient.ping();
     redisOk = (pong === 'PONG');
@@ -153,7 +152,7 @@ export async function tryAcquireCoordinatorLeadership(): Promise<boolean> {
       dedicatedLockSql = postgres(env.DATABASE_URL, {
         max: 1,
         connect_timeout: 5,
-        ssl: env.DATABASE_URL.includes('supabase.co') || env.DATABASE_URL.includes('sslmode=require') ? 'require' : false,
+        ssl: env.DATABASE_URL.includes('sslmode=require') ? 'require' : false,
       });
     }
 

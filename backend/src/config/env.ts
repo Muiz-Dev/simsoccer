@@ -10,10 +10,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
-  SUPABASE_URL: z.string().optional(),
-  SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
-  SUPABASE_SECRET_KEY: z.string().optional(),
-  SUPABASE_JWKS_URL: z.string().optional(),
+  AUTH_ISSUER: z.string().url().optional(),
+  AUTH_JWKS_URL: z.string().url().optional(),
   ADMIN_PIN_PEPPER: z.string().optional(),
   ADMIN_ALLOWED_ORIGINS: z.string().default('http://localhost:3000'),
 
@@ -43,3 +41,7 @@ if (!_env.success) {
 }
 
 export const env = _env.data;
+
+if (env.NODE_ENV === 'production' && (!env.AUTH_ISSUER || !env.AUTH_JWKS_URL)) {
+  throw new Error('Production requires AUTH_ISSUER and AUTH_JWKS_URL.');
+}

@@ -26,8 +26,6 @@
   "dependencies": {
     "@react-email/components": "^1.0.12",
     "@react-email/render": "^2.1.0",
-    "@supabase/server": "^1.8.1",
-    "@supabase/supabase-js": "^2.117.2",
     "async-mutex": "^0.5.0",
     "bullmq": "^6.3.10",
     "cookie-parser": "^1.4.7",
@@ -50,7 +48,6 @@
     "react-dom": "^19.2.8",
     "resend": "^6.31.0",
     "seedrandom": "^3.0.5",
-    "standardwebhooks": "^1.1.1",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },

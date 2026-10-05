@@ -6,7 +6,6 @@ export const redis = env.REDIS_URL
       connectTimeout: 5000,
       maxRetriesPerRequest: 1,
       retryStrategy: () => null,
-      tls: env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     })
   : null;
 

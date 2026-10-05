@@ -17,13 +17,12 @@ let shuttingDown = false;
 async function verifyDependencies(): Promise<void> {
   const database = postgres(env.DATABASE_URL, {
     connect_timeout: 10,
-    ssl: env.DATABASE_URL.includes('supabase.co') || env.DATABASE_URL.includes('sslmode=require') ? 'require' : false,
+    ssl: env.DATABASE_URL.includes('sslmode=require') ? 'require' : false,
   });
   const redis = new Redis(env.REDIS_URL, {
     connectTimeout: 5000,
     maxRetriesPerRequest: 1,
     retryStrategy: () => null,
-    tls: env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
   });
 
   try {

@@ -5,21 +5,14 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
-import { type Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase/client';
+import { getAccessToken, requestAuth, setAccessToken, type AuthResponse } from '@/lib/auth-client';
 import styles from './AuthFlow.module.css';
 
-type Stage = 'signin' | 'signup' | 'signup-code' | 'signin-code' | 'forgot' | 'recovery-code' | 'new-password' | 'profile';
-type AccountResponse = {
-  account: {
-    firstName: string | null;
-    lastName: string | null;
-    profileComplete: boolean;
-  };
-};
+type Stage = 'signin' | 'signup' | 'signup-code' | 'signin-code' | 'forgot' | 'recovery' | 'profile';
+type Account = NonNullable<AuthResponse['account']>;
 
 const API_URL = (process.env.NEXT_PUBLIC_ACCOUNTS_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
-const PRIVACY_NOTICE_VERSION = '2026-10-01';
+const PRIVACY_NOTICE_VERSION = '2026-10-05';
 
 function getReturnPath(): string {
   const next = new URLSearchParams(window.location.search).get('next');
@@ -32,17 +25,18 @@ function maskEmail(value: string): string {
   return `${localPart[0]}${'•'.repeat(Math.max(3, Math.min(localPart.length - 1, 8)))}@${domain}`;
 }
 
-async function readAccountResponse(response: Response): Promise<AccountResponse> {
+async function readAccountResponse(response: Response): Promise<{ account: Account }> {
   const result = await response.json().catch(() => null);
   if (!response.ok || !result?.account) {
     throw new Error(result?.message ?? 'Account services are temporarily unavailable. Try again.');
   }
-  return result as AccountResponse;
+  return result as { account: Account };
 }
 
 export default function AuthFlow() {
   const router = useRouter();
   const [stage, setStage] = useState<Stage>('signin');
+  const [emailEntryStage, setEmailEntryStage] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -51,6 +45,8 @@ export default function AuthFlow() {
   const [lastName, setLastName] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [code, setCode] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [challengePurpose, setChallengePurpose] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -63,36 +59,27 @@ export default function AuthFlow() {
   function moveTo(next: Stage) {
     clearFeedback();
     setCode('');
+    setChallengeId('');
     setStage(next);
   }
 
-  async function provisionAndContinue(session: Session, phoneValue = phone) {
-    if (!API_URL) throw new Error('Account services are not configured. Try again later.');
-    const headers = {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    };
-    const currentResponse = await fetch(`${API_URL}/api/account/me`, { headers, cache: 'no-store' });
-    let account: AccountResponse['account'];
-
-    if (currentResponse.status === 404) {
-      const provisionResponse = await fetch(`${API_URL}/api/account/provision`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(phoneValue ? { phone: phoneValue } : {}),
+  async function continueWithSession(accessToken: string, account?: Account) {
+    setAccessToken(accessToken);
+    let currentAccount = account;
+    if (!currentAccount) {
+      if (!API_URL) throw new Error('Account services are not configured. Try again later.');
+      const response = await fetch(`${API_URL}/api/account/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        cache: 'no-store',
       });
-      account = (await readAccountResponse(provisionResponse)).account;
-    } else {
-      account = (await readAccountResponse(currentResponse)).account;
+      currentAccount = (await readAccountResponse(response)).account;
     }
-
-    if (account.profileComplete) {
+    if (currentAccount.profileComplete) {
       router.push(getReturnPath());
       return;
     }
-
     setStage('profile');
-    setNotice('Your email is verified. Finish your profile to continue.');
+    setNotice('Finish your profile to continue.');
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -100,18 +87,15 @@ export default function AuthFlow() {
     clearFeedback();
     setBusy(true);
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (authError?.code === 'email_not_confirmed') {
-        const resend = await supabase.auth.resend({ type: 'signup', email: email.trim() });
-        if (resend.error) throw new Error('Email or password is incorrect. Try again or reset your password.');
-        setStage('signup-code');
-        setNotice('If this address can be verified, a new code is on its way.');
-        return;
-      }
-      if (authError || !data.session) throw new Error('Email or password is incorrect. Try again or reset your password.');
-      await provisionAndContinue(data.session, data.user.user_metadata?.phone ?? phone);
+      const result = await requestAuth('signin', { email: email.trim(), password });
+      if (!result.challengeId || !result.purpose) throw new Error('Sign-in could not be started. Try again.');
+      setChallengeId(result.challengeId);
+      setChallengePurpose(result.purpose);
+      setEmailEntryStage('signin');
+      setStage(result.purpose === 'verify' ? 'signup-code' : 'signin-code');
+      setNotice('If this address can receive a code, a message is on its way.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Sign in is temporarily unavailable. Try again.');
+      setError(cause instanceof Error ? cause.message : 'Sign-in is temporarily unavailable. Try again.');
     } finally {
       setBusy(false);
     }
@@ -122,15 +106,13 @@ export default function AuthFlow() {
     clearFeedback();
     setBusy(true);
     try {
-      const { data, error: authError } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: { data: { phone }, emailRedirectTo: `${window.location.origin}/auth` },
-      });
-      if (authError) throw new Error('We could not start sign-up. Check the details or try signing in.');
+      const result = await requestAuth('signup', { email: email.trim(), password });
+      if (!result.challengeId) throw new Error('Sign-up could not be started. Try again.');
+      setChallengeId(result.challengeId);
+      setChallengePurpose('verify');
+      setEmailEntryStage('signup');
       setStage('signup-code');
       setNotice('If this address can be registered, a verification code is on its way.');
-      if (data.session) await provisionAndContinue(data.session, phone);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Sign-up is temporarily unavailable. Try again.');
     } finally {
@@ -138,16 +120,19 @@ export default function AuthFlow() {
     }
   }
 
-  async function handlePasswordlessRequest(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function handlePasswordlessRequest() {
     clearFeedback();
+    if (!email.trim()) {
+      setError('Enter your email address first.');
+      return;
+    }
     setBusy(true);
     try {
-      const { error: authError } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { shouldCreateUser: false },
-      });
-      if (authError) throw new Error('We could not send a sign-in code. Try again shortly.');
+      const result = await requestAuth('passwordless', { email: email.trim() });
+      if (!result.challengeId) throw new Error('A sign-in code could not be requested. Try again.');
+      setChallengeId(result.challengeId);
+      setChallengePurpose('passwordless');
+      setEmailEntryStage('signin');
       setStage('signin-code');
       setNotice('If this address has an account, a sign-in code is on its way.');
     } catch (cause) {
@@ -162,11 +147,11 @@ export default function AuthFlow() {
     clearFeedback();
     setBusy(true);
     try {
-      const { error: authError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/auth`,
-      });
-      if (authError) throw new Error('We could not start password recovery. Try again shortly.');
-      setStage('recovery-code');
+      const result = await requestAuth('password-reset/request', { email: email.trim() });
+      if (!result.challengeId) throw new Error('Password recovery could not be started. Try again.');
+      setChallengeId(result.challengeId);
+      setChallengePurpose('recovery');
+      setStage('recovery');
       setNotice('If this address has an account, a recovery code is on its way.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Password recovery is temporarily unavailable.');
@@ -184,15 +169,9 @@ export default function AuthFlow() {
     }
     setBusy(true);
     try {
-      const type = stage === 'signup-code' ? 'signup' : stage === 'recovery-code' ? 'recovery' : 'email';
-      const { data, error: authError } = await supabase.auth.verifyOtp({ email: email.trim(), token: code, type });
-      if (authError || !data.session) throw new Error('That code is invalid or expired. Request a new one.');
-      if (stage === 'recovery-code') {
-        setStage('new-password');
-        setNotice('Choose a new password for your account.');
-      } else {
-        await provisionAndContinue(data.session, phone);
-      }
+      const result = await requestAuth('verify', { challengeId, code });
+      if (!result.accessToken) throw new Error('The code could not be verified. Request a new one.');
+      await continueWithSession(result.accessToken, result.account);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The code could not be verified. Try again.');
     } finally {
@@ -200,18 +179,22 @@ export default function AuthFlow() {
     }
   }
 
-  async function handleNewPassword(event: FormEvent<HTMLFormElement>) {
+  async function handlePasswordRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     clearFeedback();
+    if (!/^\d{8}$/.test(code)) {
+      setError('Enter the eight-digit code from the email.');
+      return;
+    }
     setBusy(true);
     try {
-      const { error: authError } = await supabase.auth.updateUser({ password: newPassword });
-      if (authError) throw new Error('The new password could not be saved. Try again.');
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) throw new Error('Your recovery session expired. Request a new code.');
-      await provisionAndContinue(data.session, phone);
+      const result = await requestAuth('password-reset/complete', { challengeId, code, password: newPassword });
+      setStage('signin');
+      setNotice(result.notificationSent === false
+        ? 'Password updated, but the security email could not be sent. Sign in with your new password.'
+        : 'Password updated. Sign in with your new password.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Password update is temporarily unavailable.');
+      setError(cause instanceof Error ? cause.message : 'The password could not be reset. Try again.');
     } finally {
       setBusy(false);
     }
@@ -222,15 +205,21 @@ export default function AuthFlow() {
     clearFeedback();
     setBusy(true);
     try {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) throw new Error('Your session expired. Sign in to continue.');
+      const token = await getAccessToken();
+      if (!token) throw new Error('Your session expired. Sign in to continue.');
       const response = await fetch(`${API_URL}/api/account/profile`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${data.session.access_token}`,
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ firstName, lastName, phone, termsAccepted, privacyNoticeVersion: PRIVACY_NOTICE_VERSION }),
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          phone,
+          termsAccepted,
+          privacyNoticeVersion: PRIVACY_NOTICE_VERSION,
+        }),
       });
       await readAccountResponse(response);
       router.push(getReturnPath());
@@ -245,13 +234,14 @@ export default function AuthFlow() {
     clearFeedback();
     setBusy(true);
     try {
-      const result = stage === 'recovery-code'
-        ? await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/auth` })
-        : stage === 'signup-code'
-          ? await supabase.auth.resend({ type: 'signup', email: email.trim() })
-          : await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false } });
-      if (result.error) throw new Error('A new code could not be sent. Wait a moment and try again.');
-      setNotice('If the account can receive a code, a new message is on its way.');
+      const result = stage === 'recovery'
+        ? await requestAuth('password-reset/request', { email: email.trim() })
+        : challengePurpose === 'verify'
+          ? await requestAuth('signup', { email: email.trim(), password })
+          : await requestAuth('passwordless', { email: email.trim() });
+      if (!result.challengeId) throw new Error('A new code could not be sent. Wait a moment and try again.');
+      setChallengeId(result.challengeId);
+      setNotice('If this address can receive a code, a new message is on its way.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'A new code could not be sent.');
     } finally {
@@ -259,15 +249,14 @@ export default function AuthFlow() {
     }
   }
 
-  const codeStage = stage === 'signup-code' || stage === 'signin-code' || stage === 'recovery-code';
+  const codeStage = stage === 'signup-code' || stage === 'signin-code';
   const title = stage === 'signup' ? 'Create your account'
     : stage === 'signup-code' ? 'Verify your email'
       : stage === 'signin-code' ? 'Enter your sign-in code'
         : stage === 'forgot' ? 'Reset your password'
-          : stage === 'recovery-code' ? 'Verify your email'
-            : stage === 'new-password' ? 'Choose a new password'
-              : stage === 'profile' ? 'Complete your profile'
-                : 'Sign in';
+          : stage === 'recovery' ? 'Choose a new password'
+            : stage === 'profile' ? 'Complete your profile'
+              : 'Sign in';
 
   return (
     <main className={styles.page}>
@@ -284,7 +273,7 @@ export default function AuthFlow() {
           <h1 id="auth-title">{title}</h1>
           {stage === 'signup' ? <p className={styles.introText}>Create your account.</p>
             : stage === 'profile' ? <p className={styles.introText}>Complete your profile.</p>
-              : codeStage ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
+              : codeStage || stage === 'recovery' ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
                 : null}
         </div>
 
@@ -298,19 +287,17 @@ export default function AuthFlow() {
         {stage === 'signin' ? (
           <form className={styles.form} onSubmit={(event) => void handleSignIn(event)}>
             <label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-            <label>Password<input type="password" autoComplete="current-password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             <div className={styles.inlineLinks}><button type="button" onClick={() => moveTo('forgot')}>Forgot password?</button></div>
-            <button className={styles.primary} type="submit" disabled={busy}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Signing in' : 'Continue'}</button>
-            <button className={styles.textAction} type="button" disabled={busy} onClick={() => void handlePasswordlessRequest(new Event('submit') as unknown as FormEvent<HTMLFormElement>)}>Email me a sign-in code</button>
+            <button className={styles.primary} type="submit" disabled={busy}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Sending code' : 'Continue'}</button>
+            <button className={styles.textAction} type="button" disabled={busy} onClick={() => void handlePasswordlessRequest()}>Email me a sign-in code</button>
           </form>
         ) : null}
 
         {stage === 'signup' ? (
           <form className={styles.form} onSubmit={(event) => void handleSignUp(event)}>
             <label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
-            <label>Phone number<input type="tel" autoComplete="tel" required minLength={7} maxLength={24} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
-            <label>Password<input type="password" autoComplete="new-password" required minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
-            <p className={styles.privacyNote}>We use your email to secure your account. Your phone number is stored with your profile.</p>
+            <label>Password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             <button className={styles.primary} type="submit" disabled={busy}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Sending code' : 'Continue'}</button>
           </form>
         ) : null}
@@ -330,9 +317,9 @@ export default function AuthFlow() {
                 required
               />
             </label>
-            <button className={styles.primary} type="submit" disabled={busy || !/^\d{8}$/.test(code)}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Checking code' : 'Verify code'}</button>
+            <button className={styles.primary} type="submit" disabled={busy || !challengeId || !/^\d{8}$/.test(code)}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Checking code' : 'Verify code'}</button>
             <button className={styles.textAction} type="button" disabled={busy} onClick={() => void resendCode()}>Send a new code</button>
-            <button className={styles.backAction} type="button" onClick={() => moveTo(stage === 'signup-code' ? 'signup' : stage === 'recovery-code' ? 'forgot' : 'signin')}>Use a different email</button>
+            <button className={styles.backAction} type="button" onClick={() => moveTo(emailEntryStage)}>Use a different email</button>
           </form>
         ) : null}
 
@@ -344,10 +331,23 @@ export default function AuthFlow() {
           </form>
         ) : null}
 
-        {stage === 'new-password' ? (
-          <form className={styles.form} onSubmit={(event) => void handleNewPassword(event)}>
-            <label>New password<input type="password" autoComplete="new-password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-            <button className={styles.primary} type="submit" disabled={busy}>{busy ? 'Saving password' : 'Save new password'}</button>
+        {stage === 'recovery' ? (
+          <form className={styles.form} onSubmit={(event) => void handlePasswordRecovery(event)}>
+            <label className={styles.codeField}>Verification code
+              <input
+                aria-label="Eight-digit password recovery code"
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
+                required
+              />
+            </label>
+            <label>New password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+            <button className={styles.primary} type="submit" disabled={busy || !challengeId || !/^\d{8}$/.test(code)}>{busy ? 'Saving password' : 'Save new password'}</button>
+            <button className={styles.textAction} type="button" disabled={busy} onClick={() => void resendCode()}>Send a new code</button>
           </form>
         ) : null}
 
@@ -357,7 +357,7 @@ export default function AuthFlow() {
               <label>First name<input autoComplete="given-name" required maxLength={80} value={firstName} onChange={(event) => setFirstName(event.target.value)} /></label>
               <label>Last name<input autoComplete="family-name" required maxLength={80} value={lastName} onChange={(event) => setLastName(event.target.value)} /></label>
             </div>
-            <label>Phone number<input type="tel" autoComplete="tel" required minLength={7} maxLength={24} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
+            <label>Phone number (optional)<input type="tel" autoComplete="tel" maxLength={24} value={phone} onChange={(event) => setPhone(event.target.value)} /></label>
             <label className={styles.consent}>
               <input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} />
               <span>I agree to the <Link href="/terms" target="_blank">Terms</Link> and acknowledge the <Link href="/privacy" target="_blank">Privacy Notice</Link>.</span>

@@ -3,6 +3,7 @@
 **System Name:** SIM SOCCER Virtual Football Engine
 **Version:** 1.0.0
 **Target Environment:** Node.js + TypeScript + Express 5 + PostgreSQL + Redis + BullMQ + WebSockets
+**Authentication:** First-party Accounts API with RS256 access tokens and rotating sessions
 
 ---
 
@@ -28,7 +29,7 @@ backend/
 │   ├── app.ts                  # Express Application setup & HTTP routes
 │   ├── index.ts                # App bootstrapper & HTTP/WebSocket server
 │   ├── auth/
-│   │   └── jwt.ts              # Supabase JWT authentication & role enforcement
+│   │   └── jwt.ts              # First-party JWT validation & role enforcement
 │   ├── config/
 │   │   └── env.ts              # Zod environment variable validation
 │   ├── db/
@@ -86,6 +87,9 @@ PostgreSQL serves as the authoritative source of permanent state:
 
 ## 4. Setup, Migration & Seeding Instructions
 
+For current authentication, required secrets, Nginx routes, staged testing, and
+the EC2 cutover, use [DEPLOYMENT-HANDOFF.md](../DEPLOYMENT-HANDOFF.md).
+
 ### Environment Setup
 Create a `.env` file in `backend/`:
 
@@ -94,9 +98,8 @@ PORT=8080
 NODE_ENV=development
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/sim_soccer
 REDIS_URL=redis://localhost:6379
-SUPABASE_URL=https://your_project_ref.supabase.co
-SUPABASE_PUBLISHABLE_KEY=your_publishable_key
-SUPABASE_JWKS_URL=https://your_project_ref.supabase.co/auth/v1/.well-known/jwks.json
+AUTH_ISSUER=https://simapi.example.com
+AUTH_JWKS_URL=https://simapi.example.com/api/auth/.well-known/jwks.json
 TICK_RATE_MS=1000
 MATCH_REAL_DURATION_SECONDS=180
 SIMULATION_VERSION=1.0.0

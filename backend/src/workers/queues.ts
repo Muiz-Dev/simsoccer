@@ -4,7 +4,6 @@ import { env } from '../config/env';
 
 export const redisConnection = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
-  tls: env.REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
 });
 
 export const SIMULATION_QUEUE_NAME = 'match-simulation';
