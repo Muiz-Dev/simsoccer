@@ -87,6 +87,10 @@ export default function AuthFlow() {
     setBusy(true);
     try {
       const result = await requestAuth('signin', { email: email.trim(), password });
+      if (result.accessToken) {
+        await continueWithSession(result.accessToken, result.account);
+        return;
+      }
       if (!result.challengeId || !result.purpose) throw new Error('Sign-in could not be started. Try again.');
       setChallengeId(result.challengeId);
       setChallengePurpose(result.purpose);
@@ -286,7 +290,7 @@ export default function AuthFlow() {
             <label>Email address<input type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
             <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             <div className={styles.inlineLinks}><button type="button" onClick={() => moveTo('forgot')}>Forgot password?</button></div>
-            <button className={styles.primary} type="submit" disabled={busy}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Sending code' : 'Continue'}</button>
+            <button className={styles.primary} type="submit" disabled={busy}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Signing in' : 'Continue'}</button>
             <button className={styles.textAction} type="button" disabled={busy} onClick={() => void handlePasswordlessRequest()}>Email me a sign-in code</button>
           </form>
         ) : null}

@@ -225,9 +225,24 @@ export function createApp() {
       res.status(429).json({ error: 'TOO_MANY_ATTEMPTS', message: 'Too many sign-in attempts. Try again later.' });
       return;
     }
-    const result = await authenticatePassword(parsedEmail.data, parsedPassword.data);
+    const result = await authenticatePassword(
+      parsedEmail.data,
+      parsedPassword.data,
+      requestCookie(req, deviceCookieName),
+    );
     if (!result.challenge) {
-      res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect.' });
+      if (!result.sessionUserId) {
+        res.status(401).json({ error: 'INVALID_CREDENTIALS', message: 'Email or password is incorrect.' });
+        return;
+      }
+      const session = await createSession(
+        result.sessionUserId,
+        requestCookie(req, deviceCookieName),
+        req.get('User-Agent'),
+        getClientIp(req),
+      );
+      setSessionCookies(res, session.refreshToken, session.deviceToken);
+      res.json({ accessToken: session.accessToken, account: session.account });
       return;
     }
     const purpose = result.needsVerification ? 'verify' : 'login';
@@ -327,7 +342,7 @@ export function createApp() {
     const notificationSent = await notifyPasswordChanged(changedEmail);
     const session = await createSession(
       req.identity.id,
-      requestCookie(req, deviceCookieName),
+      undefined,
       req.get('User-Agent'),
       getClientIp(req),
     );
@@ -370,7 +385,7 @@ export function createApp() {
     const notificationSent = await notifyPasswordChanged(changedEmail);
     const session = await createSession(
       req.identity.id,
-      requestCookie(req, deviceCookieName),
+      undefined,
       req.get('User-Agent'),
       getClientIp(req),
     );

@@ -142,9 +142,14 @@ export async function register(email: string, password: string): Promise<Challen
   return createChallenge(email, 'verify', user.id);
 }
 
-export async function authenticatePassword(email: string, password: string): Promise<{
+export async function authenticatePassword(
+  email: string,
+  password: string,
+  deviceToken?: string,
+): Promise<{
   challenge: ChallengeResult | null;
   needsVerification: boolean;
+  sessionUserId: string | null;
 }> {
   const [user] = await database<(AuthUser & { password_hash: string | null; is_email_verified: boolean; account_status: string })[]>`
     SELECT id, email, role, first_name, last_name, phone, password_hash, is_email_verified, account_status
@@ -153,18 +158,41 @@ export async function authenticatePassword(email: string, password: string): Pro
   const passwordHash = user?.password_hash;
   if (!passwordHash) {
     await runPasswordWork(() => argon2.hash(password, passwordOptions));
-    return { challenge: null, needsVerification: false };
+    return { challenge: null, needsVerification: false, sessionUserId: null };
   }
   if (!await runPasswordWork(() => argon2.verify(passwordHash, password))) {
-    return { challenge: null, needsVerification: false };
+    return { challenge: null, needsVerification: false, sessionUserId: null };
   }
   if (user.account_status !== 'ACTIVE') {
-    return { challenge: null, needsVerification: false };
+    return { challenge: null, needsVerification: false, sessionUserId: null };
   }
   if (!user.is_email_verified) {
-    return { challenge: await createChallenge(email, 'verify', user.id), needsVerification: true };
+    return {
+      challenge: await createChallenge(email, 'verify', user.id),
+      needsVerification: true,
+      sessionUserId: null,
+    };
   }
-  return { challenge: await createChallenge(email, 'login', user.id), needsVerification: false };
+
+  if (deviceToken) {
+    const [recognizedDevice] = await database<{ id: string }[]>`
+      SELECT id FROM auth_devices
+      WHERE user_id = ${user.id}
+        AND device_token_hash = ${digestSecret(deviceToken)}
+        AND revoked_at IS NULL
+        AND last_seen_at > now() - interval '180 days'
+      LIMIT 1
+    `;
+    if (recognizedDevice) {
+      return { challenge: null, needsVerification: false, sessionUserId: user.id };
+    }
+  }
+
+  return {
+    challenge: await createChallenge(email, 'login', user.id),
+    needsVerification: false,
+    sessionUserId: null,
+  };
 }
 
 export async function requestPasswordless(email: string): Promise<ChallengeResult> {
@@ -417,25 +445,39 @@ export async function revokeSessionFamily(userId: string, familyId: string): Pro
 }
 
 export async function revokeAllSessions(userId: string): Promise<void> {
-  await database`
-    UPDATE auth_sessions SET revoked_at = now()
-    WHERE user_id = ${userId} AND revoked_at IS NULL
-  `;
+  await database.begin(async (tx) => {
+    await tx`
+      UPDATE auth_sessions SET revoked_at = now()
+      WHERE user_id = ${userId} AND revoked_at IS NULL
+    `;
+    await tx`
+      UPDATE auth_devices SET revoked_at = now()
+      WHERE user_id = ${userId} AND revoked_at IS NULL
+    `;
+  });
 }
 
 export async function completePasswordRecovery(challengeId: string, code: string, password: string): Promise<string | null> {
   const challenge = await consumeChallenge(challengeId, code, ['recovery']);
   if (!challenge?.user_id) return null;
   const passwordHash = await runPasswordWork(() => argon2.hash(password, passwordOptions));
-  await database`
-    UPDATE users SET password_hash = ${passwordHash}, updated_at = now()
-    WHERE id = ${challenge.user_id} AND is_email_verified = true AND account_status = 'ACTIVE'
-  `;
-  await database`
-    UPDATE auth_sessions SET revoked_at = now()
-    WHERE user_id = ${challenge.user_id} AND revoked_at IS NULL
-  `;
-  return challenge.email;
+  return database.begin(async (tx) => {
+    const [updatedUser] = await tx<{ id: string }[]>`
+      UPDATE users SET password_hash = ${passwordHash}, updated_at = now()
+      WHERE id = ${challenge.user_id} AND is_email_verified = true AND account_status = 'ACTIVE'
+      RETURNING id
+    `;
+    if (!updatedUser) return null;
+    await tx`
+      UPDATE auth_sessions SET revoked_at = now()
+      WHERE user_id = ${challenge.user_id} AND revoked_at IS NULL
+    `;
+    await tx`
+      UPDATE auth_devices SET revoked_at = now()
+      WHERE user_id = ${challenge.user_id} AND revoked_at IS NULL
+    `;
+    return challenge.email;
+  });
 }
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string): Promise<string | null> {
@@ -456,6 +498,10 @@ export async function changePassword(userId: string, currentPassword: string, ne
     `;
     await tx`
       UPDATE auth_sessions SET revoked_at = now()
+      WHERE user_id = ${userId} AND revoked_at IS NULL
+    `;
+    await tx`
+      UPDATE auth_devices SET revoked_at = now()
       WHERE user_id = ${userId} AND revoked_at IS NULL
     `;
     return user.email;
@@ -522,6 +568,10 @@ export async function completePasswordChange(
     `;
     await tx`
       UPDATE auth_sessions SET revoked_at = now()
+      WHERE user_id = ${userId} AND revoked_at IS NULL
+    `;
+    await tx`
+      UPDATE auth_devices SET revoked_at = now()
       WHERE user_id = ${userId} AND revoked_at IS NULL
     `;
     return user.email;
