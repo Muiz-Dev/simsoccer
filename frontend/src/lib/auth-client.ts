@@ -81,9 +81,14 @@ export async function restoreAccessToken(): Promise<string | null> {
         return null;
       }
       const result = await response.json() as AuthResponse;
-      if (!result.accessToken) throw new Error('Account services returned an invalid session.');
+      if (!result.accessToken) throw new Error("We couldn't sign you in. Try again.");
       setAccessToken(result.accessToken);
       return result.accessToken;
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new Error('Connection problem. Check your internet and try again.');
+      }
+      throw error;
     } finally {
       restorePromise = null;
       publish();
@@ -108,13 +113,18 @@ export async function requestAuth(path: string, body?: unknown, token?: string):
   const headers = new Headers();
   if (body !== undefined) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`/api/auth/${path.replace(/^\/+/, '')}`, {
-    method: 'POST',
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/auth/${path.replace(/^\/+/, '')}`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Connection problem. Check your internet and try again.');
+  }
   const result = await response.json().catch(() => null) as AuthResponse | null;
   if (!response.ok || !result) {
     if (response.status >= 500) {
