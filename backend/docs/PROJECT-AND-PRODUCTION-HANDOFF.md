@@ -140,13 +140,13 @@ current scope.
 
 ### World state observed on EC2
 
-The latest recorded `/api/world/status` response showed:
+At the start of the investigation, `/api/world/status` showed Season 2, Round
+17 of 38, with 30 live, 480 completed, and 630 scheduled fixtures across
+Premier League, La Liga, and Serie A. After the Accounts API update was
+activated, the world remained `RUNNING` and had advanced to Round 18, with 30
+live, 510 completed, and 600 scheduled fixtures total. This confirms the
+simulation continued while the Accounts API was built and restarted.
 
-- World status: `RUNNING`.
-- Active season: `Season 2`, round 17 of 38.
-- Three active leagues: Premier League, La Liga, and Serie A.
-- 10 live fixtures per league (30 total), 160 completed per league (480 total),
-  and 210 scheduled per league (630 total).
 - PostgreSQL, Redis, and migration checks were reported as healthy by the
   world backend.
 - The returned status reported `isCoordinatorLeader: false` and no coordinator
@@ -185,6 +185,12 @@ record says the Accounts API tests (8/8), world tests (13/13), and both API
 builds passed on EC2. Do not infer that these tests were run again merely
 because the machine is currently online.
 
+For the follow-up Accounts API reliability update, the 8 Accounts API tests
+passed again on EC2 and the updated API compiled successfully. The first
+compile attempt was killed (exit 137) while the old Accounts API was still
+running; the retry stopped only that API, built into a separate output
+directory, then activated the result. The world runtime stayed online.
+
 Existing users' legacy IDs and wallet data are retained. Old identity-provider
 passwords are not imported. An unverified registration may leave an
 unverified account record if email delivery or the browser flow fails;
@@ -214,74 +220,74 @@ The repository's `main` includes the recent frontend work:
   `405`; refresh is a POST-only session operation and should not be opened as
   a page in a browser.
 
-The frontend auth-copy commit `e7cf023` is followed by changes in this
-investigation to the same-origin account proxy and betting profile check.
-Vercel is configured for automatic frontend deployment from `main`; pushing
-code triggers that deployment, but a push alone does not prove the deployment
-finished. Verify the Vercel deployment and deployed behavior before saying a
-UI change is live.
+The frontend auth-copy commit `e7cf023` is followed by the same-origin account
+proxy and betting profile-check changes in `d7a308d`. Vercel is configured for
+automatic frontend deployment from `main`; the deployment was verified by
+checking the live refresh and account proxy routes after the update.
 
-## Production verification and current open issue
+## Production verification and remaining limits
 
-At the captured check:
+Initial checks found the issue below. After the fix was deployed, production
+was rechecked:
 
 - PM2 showed both `simsoccer-runtime` and `simsoccer-accounts` as `online`.
 - World API `/api/health` returned `status: ok`.
-- World status returned `RUNNING`.
+- World API `/api/health/ready` returned `ready`; `/api/world/status` remained
+  `RUNNING`.
 - `sudo nginx -t` passed.
 - The Accounts API `/api/health/live` returned `status: live`.
-- Accounts API `/api/health/ready` was intermittent: it had returned `ready`
-  after restarting only the Accounts API, but later returned
-  `{"status":"not_ready"}` again. A direct dependency probe at an earlier
-  point successfully connected to PostgreSQL, found the required auth tables,
-  and received Redis `PONG`; that does not explain the later failed readiness
-  check.
+- Accounts API `/api/health/ready` returned
+  `{"status":"ready","dependencies":{"postgres":true,"redis":true}}` on five
+  consecutive public checks after deployment.
 - A correctly formatted sign-in request using a nonexistent test address
   returned `401`, as expected for invalid credentials. No real account was
   used. This does not validate email delivery, signup completion, or profile
   completion.
-- The public betting market endpoint returned `200` with market data during
-  the check. This proves that endpoint responded at that moment; it does not
-  verify every betting flow or the frontend's configured API URL.
+- `GET /api/auth/refresh` returned `405` from the website and API; `POST
+  /api/auth/refresh` without a refresh cookie returned `401`. Refresh is a
+  session operation, not a browser page.
+- The same-origin account profile endpoint returned the expected `401` when
+  called without a session.
+- The public betting markets endpoint returned `200` with fixture market
+  data.
 
-**Open production issue:** Accounts API readiness returned `not_ready`
-repeatedly while the world backend's readiness returned `ready`. The previous
-readiness route did not identify which dependency failed. Account sign-in
-requests also returned `500`; their old logs recorded only a generic `Error`,
-not enough to prove the immediate failure cause.
+**Resolved production reliability defect:** Accounts API readiness had
+repeatedly returned `not_ready` while the world backend was ready. Account
+sign-in requests also returned `500`; the old logs recorded only a generic
+`Error`, not enough to prove the immediate failure cause.
 
 One concrete reliability difference was found in source: the Accounts API's
 shared Redis client used `retryStrategy: () => null`. Once that client
 encountered a connection failure, it stopped reconnecting, while the world
 runtime's BullMQ Redis connection uses the normal reconnecting client policy.
 This can leave the account process online but unable to use Redis-backed
-rate limits until it is restarted. The Accounts API is being changed to retry
-Redis connections with a capped delay, report Redis connection errors without
-logging secrets, expose separate PostgreSQL/Redis readiness booleans, and
-return a service-unavailable response when Redis is disconnected. Account
-profile lookups in the betting UI are also being routed through the
-same-origin auth proxy rather than requiring a separate browser-side Accounts
-API URL. These are source changes, not yet confirmed as deployed or effective
-in production.
+rate limits until it is restarted. Commit `d7a308d` now retries Redis
+connections with a capped delay, logs sanitized Redis connection metadata,
+exposes separate PostgreSQL/Redis readiness booleans, and returns a
+service-unavailable response when Redis is disconnected. Account profile
+lookups in the betting UI now use the same-origin auth proxy instead of
+requiring a separate browser-side Accounts API URL. The new account code was
+built and activated on EC2 without stopping the world runtime.
 
-Do not claim the account service is healthy until the revised changes are
-deployed, readiness remains `ready`, and authorized end-to-end account checks
-pass. A PM2 `online` state means the process exists; it is not a dependency
-health check and does not prove the API can serve auth requests.
+Readiness and safe unauthenticated route checks pass after deployment. A PM2
+`online` state by itself is still not a dependency health check. Signup email
+delivery and a real account's end-to-end sign-in/profile flow have not been
+tested.
 
 Previously observed browser requests produced 500s on sign-in/signup. The
-server logs available during investigation did not reveal the underlying
-exception for those requests. Malformed JSON requests produced parser errors,
-but that is separate from a correctly formatted request. A valid-format
-synthetic sign-in after the API restart returned the expected 401; the actual
-user account flow remains unverified.
+server logs from before the fix did not reveal the underlying exception for
+those requests. Malformed JSON requests produced parser errors, but that is
+separate from a correctly formatted request. A valid-format synthetic sign-in
+after the fix returned the expected 401; the actual user account flow remains
+unverified.
 
 ## Source and deployed revision relationship
 
 At the start of this investigation, local `main` was `e7cf023`, while the EC2
-checkout reported `aaea6a7`. The website and EC2 APIs deploy separately. The
-EC2 machine should not be pulled to the latest `main` just to publish a
-frontend-only change.
+checkout reported `aaea6a7`. The updated EC2 checkout is now `279f55f`, which
+includes the Accounts API fix from `d7a308d`. The website and EC2 APIs deploy
+separately. The EC2 machine should not be pulled to the latest `main` just to
+publish a frontend-only change.
 Before a backend deployment, compare the planned commit's changed paths,
 review database migration requirements, take/verify a backup when needed,
 and follow the coordinated procedure in
