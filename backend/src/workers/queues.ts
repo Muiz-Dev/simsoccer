@@ -8,9 +8,7 @@ export const redisConnection = new Redis(env.REDIS_URL, {
 });
 
 export const SIMULATION_QUEUE_NAME = 'match-simulation';
-export const SETTLEMENT_QUEUE_NAME = 'bet-settlement';
 
 export const simulationQueue = new Queue(SIMULATION_QUEUE_NAME, { connection: redisConnection });
-export const settlementQueue = new Queue(SETTLEMENT_QUEUE_NAME, { connection: redisConnection });
 
-console.log('⚡ Redis & BullMQ Queues initialized successfully.');
+console.log('⚡ Redis & simulation queue initialized successfully.');

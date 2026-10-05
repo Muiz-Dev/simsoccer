@@ -3,7 +3,7 @@ import { stdin, stdout } from 'node:process';
 import { sql } from 'drizzle-orm';
 import { db, client } from './index';
 import { wallets } from './schema/index';
-import { redisConnection, settlementQueue, simulationQueue } from '../workers/queues';
+import { redisConnection, simulationQueue } from '../workers/queues';
 import { seedDatabase } from '../football/seed';
 import { env } from '../config/env';
 
@@ -34,8 +34,7 @@ async function resetWorld(): Promise<void> {
   if (confirmation !== CONFIRMATION) throw new Error('World reset cancelled; confirmation did not match.');
 
   await simulationQueue.obliterate({ force: true });
-  await settlementQueue.obliterate({ force: true });
-  console.log('Cleared simulation and settlement queues.');
+  console.log('Cleared simulation queue.');
 
   await db.transaction(async (tx) => {
     await tx.execute(sql`TRUNCATE TABLE public.leagues, public.bets, public.wallet_transactions RESTART IDENTITY CASCADE`);
@@ -61,7 +60,7 @@ void resetWorld()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await Promise.allSettled([simulationQueue.close(), settlementQueue.close()]);
+    await simulationQueue.close();
     redisConnection.disconnect();
     await client.end();
   });

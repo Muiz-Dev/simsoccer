@@ -349,6 +349,7 @@ export const walletTransactions = pgTable('wallet_transactions', {
   balanceAfter: numeric('balance_after').notNull(),
   referenceType: text('reference_type'),
   referenceId: uuid('reference_id'),
+  idempotencyKey: text('idempotency_key').unique(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
@@ -383,6 +384,83 @@ export const settlements = pgTable('settlements', {
   payoutAmount: numeric('payout_amount').notNull().default('0.00'),
   settledAt: timestamp('settled_at').notNull().defaultNow(),
 });
+
+export const settlementBetLegs = pgTable('settlement_bet_legs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  betSelectionId: uuid('bet_selection_id').notNull().references(() => betSelections.id),
+  betId: uuid('bet_id').notNull().references(() => bets.id),
+  fixtureId: uuid('fixture_id').notNull().references(() => fixtures.id),
+  marketId: uuid('market_id').notNull().references(() => markets.id),
+  marketOutcomeId: uuid('market_outcome_id').references(() => marketOutcomes.id),
+  outcomeCode: text('outcome_code').notNull(),
+  acceptedOdds: numeric('accepted_odds').notNull(),
+  status: text('status').notNull(), // WON, LOST, VOID
+  fixtureResultHash: text('fixture_result_hash').notNull(),
+  rulesVersion: text('rules_version').notNull(),
+  settledAt: timestamp('settled_at').notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('settlement_bet_legs_selection_idx').on(table.betSelectionId),
+  index('settlement_bet_legs_bet_idx').on(table.betId),
+  index('settlement_bet_legs_fixture_idx').on(table.fixtureId),
+]);
+
+export const settlementFixtureRecords = pgTable('settlement_fixture_records', {
+  fixtureId: uuid('fixture_id').primaryKey().references(() => fixtures.id),
+  seasonId: uuid('season_id').notNull().references(() => seasons.id),
+  round: integer('round').notNull(),
+  resultHash: text('result_hash'),
+  status: text('status').notNull().default('DISCOVERED'), // DISCOVERED, PROCESSING, SETTLED, NO_BETS, REVIEW
+  ticketCount: integer('ticket_count').notNull().default(0),
+  selectionCount: integer('selection_count').notNull().default(0),
+  attemptCount: integer('attempt_count').notNull().default(0),
+  nextAttemptAt: timestamp('next_attempt_at'),
+  lastError: text('last_error'),
+  discoveredAt: timestamp('discovered_at').notNull().defaultNow(),
+  settledAt: timestamp('settled_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('settlement_fixture_round_idx').on(table.seasonId, table.round),
+  index('settlement_fixture_status_idx').on(table.status),
+  index('settlement_fixture_retry_idx').on(table.status, table.nextAttemptAt),
+]);
+
+export const settlementRoundRecords = pgTable('settlement_round_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  seasonId: uuid('season_id').notNull().references(() => seasons.id),
+  round: integer('round').notNull(),
+  status: text('status').notNull().default('WAITING'), // WAITING, IN_PROGRESS, SETTLING, SETTLED, NO_BETS, REVIEW
+  fixtureCount: integer('fixture_count').notNull().default(0),
+  finishedFixtureCount: integer('finished_fixture_count').notNull().default(0),
+  processedFixtureCount: integer('processed_fixture_count').notNull().default(0),
+  ticketCount: integer('ticket_count').notNull().default(0),
+  pendingTicketCount: integer('pending_ticket_count').notNull().default(0),
+  stakedCredits: numeric('staked_credits').notNull().default('0.00'),
+  potentialPayoutCredits: numeric('potential_payout_credits').notNull().default('0.00'),
+  payoutCredits: numeric('payout_credits').notNull().default('0.00'),
+  lastError: text('last_error'),
+  startedAt: timestamp('started_at'),
+  completedAt: timestamp('completed_at'),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('settlement_round_season_round_idx').on(table.seasonId, table.round),
+  index('settlement_round_status_idx').on(table.status),
+]);
+
+export const settlementActivity = pgTable('settlement_activity', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  idempotencyKey: text('idempotency_key').notNull().unique(),
+  seasonId: uuid('season_id').references(() => seasons.id),
+  round: integer('round'),
+  fixtureId: uuid('fixture_id').references(() => fixtures.id),
+  betId: uuid('bet_id').references(() => bets.id),
+  eventType: text('event_type').notNull(),
+  resultHash: text('result_hash'),
+  details: jsonb('details').notNull().default({}),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  index('settlement_activity_round_idx').on(table.seasonId, table.round, table.createdAt),
+  index('settlement_activity_fixture_idx').on(table.fixtureId, table.createdAt),
+]);
 
 export const marketOutcomeSettlements = pgTable('market_outcome_settlements', {
   id: uuid('id').primaryKey().defaultRandom(),

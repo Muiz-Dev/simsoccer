@@ -4,7 +4,7 @@ import { db, client } from '../db/index';
 import { fixtures, matches, players, seasons, teamRatings, teams } from '../db/schema/index';
 import { MatchSimulationInput } from '../simulation/types';
 import { verifySafeDatabase } from '../db/guard';
-import { redisConnection, settlementQueue, simulationQueue } from './queues';
+import { redisConnection, simulationQueue } from './queues';
 
 async function enqueueFixtureSimulation(fixtureId: string): Promise<void> {
   verifySafeDatabase(`Queue Simulation for Fixture ${fixtureId}`);
@@ -103,7 +103,6 @@ async function main(): Promise<void> {
     process.exitCode = 1;
   } finally {
     await simulationQueue.close();
-    await settlementQueue.close();
     redisConnection.disconnect();
     await client.end();
   }

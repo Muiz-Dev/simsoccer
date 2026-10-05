@@ -1,0 +1,2 @@
+ALTER TABLE "settlement_fixture_records" ADD COLUMN "next_attempt_at" timestamp;--> statement-breakpoint
+CREATE INDEX "settlement_fixture_retry_idx" ON "settlement_fixture_records" USING btree ("status","next_attempt_at");

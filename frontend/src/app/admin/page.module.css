@@ -22,6 +22,12 @@
   margin-bottom: 24px;
 }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
 .header h1,
 .loginPanel h1 {
   margin: 5px 0 0;
@@ -390,9 +396,13 @@
 }
 
 .secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-color: #bac9bf;
   background: transparent;
   color: var(--admin-ink);
+  text-decoration: none;
 }
 
 .secondaryButton:hover {

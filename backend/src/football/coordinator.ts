@@ -1,10 +1,10 @@
 import postgres from 'postgres';
 import Redis from 'ioredis';
 import { db } from '../db/index';
-import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, oddsSnapshots, teamRatings, standings, betSelections } from '../db/schema/index';
+import { worldRuntime, leagues, seasons, teams, fixtures, matches, markets, marketOutcomes, oddsSnapshots, teamRatings, standings } from '../db/schema/index';
 import { eq, and, or, sql, asc, desc, inArray } from 'drizzle-orm';
 import { env } from '../config/env';
-import { simulationQueue, settlementQueue } from '../workers/queues';
+import { simulationQueue } from '../workers/queues';
 import { buildSimulationInput } from './match-input';
 import { calculateAllPreMatchMarkets, calculateExpectedGoals } from '../markets/probability-engine';
 import { getRoundCutoffAt } from '../betting/round-market-policy';
@@ -321,38 +321,6 @@ async function createNextWorldSeasons(previousWorldSeasons: Array<{ league: any;
   });
 }
 
-async function enqueuePendingFixtureSettlements(): Promise<void> {
-  const pendingSelections = await db
-    .select({ fixtureId: betSelections.fixtureId })
-    .from(betSelections)
-    .innerJoin(fixtures, eq(fixtures.id, betSelections.fixtureId))
-    .where(and(eq(fixtures.status, 'FINISHED'), eq(betSelections.status, 'PENDING')));
-  const pendingFixtureIds = new Set(pendingSelections.map(({ fixtureId }) => fixtureId));
-
-  for (const fixtureId of pendingFixtureIds) {
-    const jobId = `settlement-${fixtureId}`;
-    const existingJob = await settlementQueue.getJob(jobId);
-    if (existingJob) {
-      const state = await existingJob.getState();
-      if (state !== 'failed') continue;
-      if (existingJob.finishedOn && Date.now() - existingJob.finishedOn < 60000) continue;
-      await existingJob.remove();
-    }
-
-    await settlementQueue.add(
-      'settle-fixture',
-      { fixtureId },
-      {
-        jobId,
-        attempts: 8,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: true,
-      }
-    );
-    console.log(`⚖️ [WORLD COORDINATOR] Queued settlement for finished fixture '${fixtureId}'.`);
-  }
-}
-
 /**
  * Main coordinator loop tick.
  */
@@ -393,7 +361,6 @@ export async function tickCoordinator(): Promise<void> {
 export async function reconcileAndScheduleWorld(): Promise<void> {
   const now = new Date();
   lastReconciliationTime = now;
-  await enqueuePendingFixtureSettlements();
 
   const allLeagues = await db.select().from(leagues).where(eq(leagues.active, true)).orderBy(asc(leagues.slug));
 

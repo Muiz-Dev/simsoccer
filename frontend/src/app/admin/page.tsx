@@ -455,7 +455,10 @@ export default function AdminPage() {
           <p className={styles.eyebrow}>SimSoccer operations</p>
           <h1>World control</h1>
         </div>
-        <button type="button" onClick={logout} className={styles.secondaryButton}>Log out</button>
+        <div className={styles.headerActions}>
+          <Link href="/admin/settlement" className={styles.secondaryButton}>Settlement operations</Link>
+          <button type="button" onClick={logout} className={styles.secondaryButton}>Log out</button>
+        </div>
       </header>
 
       {summary ? (
