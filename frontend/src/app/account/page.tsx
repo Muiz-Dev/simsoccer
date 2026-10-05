@@ -30,7 +30,6 @@ type AccountSession = {
   deviceRecognized: boolean;
 };
 
-const accountsUrl = (process.env.NEXT_PUBLIC_ACCOUNTS_API_URL ?? "").replace(/\/$/, "");
 const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 export default function AccountPage() {
@@ -54,16 +53,15 @@ export default function AccountPage() {
           router.replace("/auth?next=/account");
           return;
         }
-        if (!accountsUrl) throw new Error("Account services are not configured.");
         const authHeaders = { Authorization: `Bearer ${token}` };
-        const accountResponse = await fetch(`${accountsUrl}/api/account/me`, { headers: authHeaders, cache: "no-store" });
+        const accountResponse = await fetch("/api/auth/account/me", { headers: authHeaders, cache: "no-store" });
         const accountPayload = await accountResponse.json().catch(() => null);
         if (!accountResponse.ok || !accountPayload?.account) {
           throw new Error(accountPayload?.message ?? "Account details are temporarily unavailable.");
         }
         if (active) setAccount(accountPayload.account as Account);
 
-        const sessionResponse = await fetch(`${accountsUrl}/api/auth/sessions`, { headers: authHeaders, cache: "no-store" });
+        const sessionResponse = await fetch("/api/auth/sessions", { headers: authHeaders, cache: "no-store" });
         const sessionPayload = await sessionResponse.json().catch(() => null);
         if (!sessionResponse.ok || !Array.isArray(sessionPayload?.sessions)) {
           throw new Error(sessionPayload?.message ?? "Your sessions could not be loaded.");
@@ -144,8 +142,8 @@ export default function AccountPage() {
         currentPassword,
         newPassword,
       }, token);
-      if (result.accessToken && accountsUrl) {
-        const response = await fetch(`${accountsUrl}/api/auth/sessions`, {
+      if (result.accessToken) {
+        const response = await fetch("/api/auth/sessions", {
           headers: { Authorization: `Bearer ${result.accessToken}` },
           cache: "no-store",
         });

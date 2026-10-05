@@ -127,19 +127,23 @@ function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
       </button>
       {timelineOpen ? (
         <div className={styles.goalTimeline} id={timelineId}>
-          {goals.length ? goals.map((goal) => {
-            const isHomeGoal = goal.teamId === fixture.homeTeam?.id;
-            return (
-              <div
-                className={`${styles.timelineEvent} ${isHomeGoal ? styles.homeTimelineEvent : styles.awayTimelineEvent}`}
-                key={goal.sequence}
-                aria-label={`${goal.minute} minute goal for ${isHomeGoal ? homeName : awayName}`}
-              >
-                <span className={styles.timelineMinute}>{goal.minute}&apos;</span>
-                <SportsSoccerIcon aria-hidden="true" />
-              </div>
-            );
-          }) : <p className={styles.noTimelineEvents}>No goals in this match.</p>}
+          {goals.length ? (
+            <div className={styles.goalTimelineEvents}>
+              {goals.map((goal) => {
+                const isHomeGoal = goal.teamId === fixture.homeTeam?.id;
+                return (
+                  <div
+                    className={`${styles.timelineEvent} ${isHomeGoal ? styles.homeTimelineEvent : styles.awayTimelineEvent}`}
+                    key={goal.sequence}
+                    aria-label={`${goal.minute} minute goal for ${isHomeGoal ? homeName : awayName}`}
+                  >
+                    <span className={styles.timelineMinute}>{goal.minute}&apos;</span>
+                    <SportsSoccerIcon aria-hidden="true" />
+                  </div>
+                );
+              })}
+            </div>
+          ) : <p className={styles.noTimelineEvents}>No goals in this match.</p>}
         </div>
       ) : null}
     </article>
@@ -163,7 +167,7 @@ function MatchSkeletonList({ count = 5 }: { count?: number }) {
   );
 }
 
-function GoalTicker({ goals }: { goals: Array<{ id: string; minute: number; team: string }> }) {
+function GoalTicker({ goals }: { goals: Array<{ id: string; minute: number; team: string; match: string }> }) {
   if (!goals.length) return null;
 
   const items = (hidden: boolean) => (
@@ -173,6 +177,7 @@ function GoalTicker({ goals }: { goals: Array<{ id: string; minute: number; team
           <SportsSoccerIcon aria-hidden="true" />
           <span>{goal.minute}&apos;</span>
           <strong>{goal.team}</strong>
+          <span className={styles.tickerMatchup}>{goal.match}</span>
         </li>
       ))}
     </ul>
@@ -399,6 +404,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
             createdAt: goal.createdAt,
             minute: goal.minute,
             team: scoringTeam,
+            match: `${fixture.homeTeam?.shortName ?? fixture.homeTeam?.name ?? "Home"} vs ${fixture.awayTeam?.shortName ?? fixture.awayTeam?.name ?? "Away"}`,
           }];
         }),
     ))

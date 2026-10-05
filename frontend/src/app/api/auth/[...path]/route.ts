@@ -30,6 +30,10 @@ const allowedPaths = new Set([
   'sessions/revoke',
   '.well-known/jwks.json',
 ]);
+const accountPaths = new Map([
+  ['account/me', { method: 'GET', target: '/api/account/me' }],
+  ['account/profile', { method: 'PATCH', target: '/api/account/profile' }],
+]);
 
 async function proxyAuthRequest(
   request: NextRequest,
@@ -44,7 +48,11 @@ async function proxyAuthRequest(
 
   const { path } = await context.params;
   const routePath = path.join('/');
-  if (!allowedPaths.has(routePath)) {
+  const accountPath = accountPaths.get(routePath);
+  if (accountPath && request.method !== accountPath.method) {
+    return Response.json({ error: 'METHOD_NOT_ALLOWED' }, { status: 405 });
+  }
+  if (!accountPath && !allowedPaths.has(routePath)) {
     return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
   }
   if (request.method !== 'GET') {
@@ -60,7 +68,8 @@ async function proxyAuthRequest(
       return Response.json({ error: 'UNTRUSTED_ORIGIN' }, { status: 403 });
     }
   }
-  const target = new URL(`/api/auth/${path.map(encodeURIComponent).join('/')}${request.nextUrl.search}`, accountsApiUrl);
+  const targetPath = accountPath?.target ?? `/api/auth/${path.map(encodeURIComponent).join('/')}`;
+  const target = new URL(`${targetPath}${request.nextUrl.search}`, accountsApiUrl);
   const headers = new Headers();
   const contentType = request.headers.get('content-type');
   if (contentType) headers.set('content-type', contentType);
@@ -97,3 +106,4 @@ async function proxyAuthRequest(
 
 export const GET = proxyAuthRequest;
 export const POST = proxyAuthRequest;
+export const PATCH = proxyAuthRequest;

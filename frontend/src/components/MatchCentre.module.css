@@ -371,36 +371,38 @@
 
 .goalTimeline {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  row-gap: 0;
-  padding: 2px 18px 12px 112px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 2px 34px 12px 0;
   border-top: 1px solid #e7ebe8;
   background: #f8faf8;
 }
 
-.timelineEvent {
+.goalTimelineEvents {
   display: grid;
+  grid-column: 2;
+  grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 10px;
+}
+
+.timelineEvent {
+  display: flex;
   width: fit-content;
   min-height: 34px;
-  grid-template-columns: 36px 18px;
   align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid #e7ebe8;
+  gap: 4px;
   font-size: 12px;
 }
 
 .homeTimelineEvent {
   grid-column: 1;
-  justify-self: start;
-}
-
-.awayTimelineEvent {
-  grid-column: 2;
   justify-self: end;
 }
 
-.timelineEvent:last-child {
-  border-bottom: 0;
+.awayTimelineEvent {
+  grid-column: 3;
+  justify-self: start;
 }
 
 .timelineMinute {
@@ -481,6 +483,10 @@
 .goalTickerGroup li strong {
   color: #ffffff;
   font-weight: 700;
+}
+
+.tickerMatchup {
+  color: #d5dbd7;
 }
 
 @keyframes goal-ticker-scroll {
@@ -666,12 +672,18 @@
       font-size: 13px;
     }
 
-    .score {
-      font-size: 17px;
+    .goalTimeline {
+      grid-template-columns: 84px minmax(0, 1fr);
+      column-gap: 8px;
     }
 
-    .goalTimeline {
-      padding-left: 84px;
+    .goalTimelineEvents {
+      grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+      column-gap: 5px;
+    }
+
+    .score {
+      font-size: 17px;
     }
 
     .goalTickerGroup li {
@@ -725,7 +737,13 @@
     }
 
     .goalTimeline {
-      padding-left: 61px;
+      grid-template-columns: 61px minmax(0, 1fr);
+      column-gap: 5px;
+    }
+
+    .goalTimelineEvents {
+      grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+      column-gap: 3px;
     }
 
     .matchLine {
@@ -761,6 +779,14 @@
 
     .matchRow {
       grid-template-columns: 55px minmax(0, 1fr);
+    }
+
+    .goalTimeline {
+      grid-template-columns: 55px minmax(0, 1fr);
+    }
+
+    .goalTimelineEvents {
+      grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
     }
 
     .matchLine {

@@ -11,7 +11,6 @@ import styles from './AuthFlow.module.css';
 type Stage = 'signin' | 'signup' | 'signup-code' | 'signin-code' | 'forgot' | 'recovery' | 'profile';
 type Account = NonNullable<AuthResponse['account']>;
 
-const API_URL = (process.env.NEXT_PUBLIC_ACCOUNTS_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
 const PRIVACY_NOTICE_VERSION = '2026-10-05';
 
 function getReturnPath(): string {
@@ -67,8 +66,7 @@ export default function AuthFlow() {
     setAccessToken(accessToken);
     let currentAccount = account;
     if (!currentAccount) {
-      if (!API_URL) throw new Error('Account services are not configured. Try again later.');
-      const response = await fetch(`${API_URL}/api/account/me`, {
+      const response = await fetch('/api/auth/account/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
         cache: 'no-store',
       });
@@ -79,7 +77,6 @@ export default function AuthFlow() {
       return;
     }
     setStage('profile');
-    setNotice('Finish your profile to continue.');
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -207,7 +204,7 @@ export default function AuthFlow() {
     try {
       const token = await getAccessToken();
       if (!token) throw new Error('Your session expired. Sign in to continue.');
-      const response = await fetch(`${API_URL}/api/account/profile`, {
+      const response = await fetch('/api/auth/account/profile', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -272,9 +269,8 @@ export default function AuthFlow() {
         <div className={`${styles.intro} ${stage === 'signin' ? styles.signInIntro : ''}`}>
           <h1 id="auth-title">{title}</h1>
           {stage === 'signup' ? <p className={styles.introText}>Create your account.</p>
-            : stage === 'profile' ? <p className={styles.introText}>Complete your profile.</p>
-              : codeStage || stage === 'recovery' ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
-                : null}
+            : codeStage || stage === 'recovery' ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
+              : null}
         </div>
 
         {stage === 'signin' || stage === 'signup' ? (
@@ -362,7 +358,15 @@ export default function AuthFlow() {
               <input type="checkbox" checked={termsAccepted} onChange={(event) => setTermsAccepted(event.target.checked)} />
               <span>I agree to the <Link href="/terms" target="_blank">Terms</Link> and acknowledge the <Link href="/privacy" target="_blank">Privacy Notice</Link>.</span>
             </label>
-            <button className={styles.primary} type="submit" disabled={busy || !termsAccepted}>{busy ? 'Saving profile' : 'Finish setup'}</button>
+            <button
+              className={styles.primary}
+              type="submit"
+              aria-label={busy ? 'Completing profile' : 'Complete'}
+              disabled={busy || !termsAccepted}
+            >
+              {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
+              Complete
+            </button>
           </form>
         ) : null}
 
