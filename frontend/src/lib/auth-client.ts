@@ -74,7 +74,7 @@ export async function restoreAccessToken(): Promise<string | null> {
       });
       if (!response.ok) {
         if (response.status !== 401) {
-          throw new Error('Account services are temporarily unavailable.');
+          throw new Error('Sign-in is temporarily unavailable. Try again.');
         }
         accessToken = null;
         accessTokenExpiresAt = 0;
@@ -117,7 +117,10 @@ export async function requestAuth(path: string, body?: unknown, token?: string):
   });
   const result = await response.json().catch(() => null) as AuthResponse | null;
   if (!response.ok || !result) {
-    throw new Error(result?.message ?? 'Account services are temporarily unavailable. Try again.');
+    if (response.status >= 500) {
+      throw new Error("We couldn't complete that. Try again.");
+    }
+    throw new Error(result?.message ?? "We couldn't complete that. Try again.");
   }
   if (result.accessToken) setAccessToken(result.accessToken);
   return result;

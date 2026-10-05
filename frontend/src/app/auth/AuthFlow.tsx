@@ -27,7 +27,9 @@ function maskEmail(value: string): string {
 async function readAccountResponse(response: Response): Promise<{ account: Account }> {
   const result = await response.json().catch(() => null);
   if (!response.ok || !result?.account) {
-    throw new Error(result?.message ?? 'Account services are temporarily unavailable. Try again.');
+    throw new Error(response.status >= 500
+      ? "We couldn't complete that. Try again."
+      : result?.message ?? "We couldn't complete that. Try again.");
   }
   return result as { account: Account };
 }
@@ -268,8 +270,7 @@ export default function AuthFlow() {
       <section className={styles.shell} aria-labelledby="auth-title">
         <div className={`${styles.intro} ${stage === 'signin' ? styles.signInIntro : ''}`}>
           <h1 id="auth-title">{title}</h1>
-          {stage === 'signup' ? <p className={styles.introText}>Create your account.</p>
-            : codeStage || stage === 'recovery' ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
+          {codeStage || stage === 'recovery' ? <p className={styles.introText}>Code sent to {maskEmail(email)}.</p>
               : null}
         </div>
 
