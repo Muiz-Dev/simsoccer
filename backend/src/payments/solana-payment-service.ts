@@ -48,7 +48,7 @@ export class SolanaPaymentError extends Error {
 }
 
 function assertPaymentsConfigured(): string {
-  if (!env.SOLANA_PAYMENTS_ENABLED || env.NODE_ENV === 'production') {
+  if (!env.SOLANA_PAYMENTS_ENABLED) {
     throw new SolanaPaymentError('Devnet credit purchases are not available.', 503, 'PAYMENTS_DISABLED');
   }
   const treasury = env.SOLANA_TREASURY_ADDRESS;
@@ -71,7 +71,7 @@ function normalizeAddress(value: string, fieldName: string): string {
 }
 
 export function getSolanaPaymentConfig() {
-  const enabled = env.SOLANA_PAYMENTS_ENABLED && env.NODE_ENV !== 'production';
+  const enabled = env.SOLANA_PAYMENTS_ENABLED;
   let treasuryAddress: string | null = null;
   if (enabled) treasuryAddress = assertPaymentsConfigured();
   return {
@@ -501,7 +501,7 @@ export async function reconcileSolanaPaymentOrder(orderId: string, submittedSign
 }
 
 export async function reconcileRecentSolanaPayments(): Promise<void> {
-  if (!env.SOLANA_PAYMENTS_ENABLED || env.NODE_ENV === 'production') return;
+  if (!env.SOLANA_PAYMENTS_ENABLED) return;
   const recentCutoff = new Date(Date.now() - MAX_RECOVERY_AGE_MS);
   const statuses = inArray(solanaPaymentOrders.status, [
     'PENDING', 'SUBMITTED', 'CONFIRMING', 'EXPIRED', 'FAILED',

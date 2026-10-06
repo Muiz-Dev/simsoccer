@@ -79,7 +79,7 @@ Lifecycle values include `PENDING`, `SUBMITTED`, `CONFIRMING`, `CREDITED`, `EXPI
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `SOLANA_PAYMENTS_ENABLED` | `false` | Must be explicitly enabled outside production. |
+| `SOLANA_PAYMENTS_ENABLED` | `false` | Set to `true` to enable devnet credit purchases. |
 | `SOLANA_CLUSTER` | `devnet` | Only `devnet` is accepted by this build. |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | Use a devnet RPC URL. Its genesis hash is checked before use. |
 | `SOLANA_TREASURY_ADDRESS` | unset | Required and validated when the feature is enabled. Public address only. |
@@ -87,7 +87,7 @@ Lifecycle values include `PENDING`, `SUBMITTED`, `CONFIRMING`, `CREDITED`, `EXPI
 
 CoinGecko uses its keyless public endpoint; no API key or API-key environment variable is required.
 
-The feature fails closed in production, and this build does not accept a mainnet cluster. Never put a treasury private key in application or browser configuration. Do not enable mainnet deposits, purchased wagering, or deployment of this feature to users until production RPC/indexing, treasury operations, refund/underpayment policy, and legal review have been separately approved.
+The feature accepts only devnet; set `SOLANA_CLUSTER=devnet` in the backend environment. Never put a treasury private key in application or browser configuration. Do not enable mainnet deposits or purchased wagering.
 
 ## Research sources
 

@@ -4,7 +4,7 @@ import { reconcileRecentSolanaPayments } from './solana-payment-service';
 let activeRun: Promise<void> | null = null;
 
 export function startSolanaPaymentReconciliation(): () => void {
-  if (!env.SOLANA_PAYMENTS_ENABLED || env.NODE_ENV === 'production') return () => undefined;
+  if (!env.SOLANA_PAYMENTS_ENABLED) return () => undefined;
 
   const run = () => {
     if (activeRun) return activeRun;

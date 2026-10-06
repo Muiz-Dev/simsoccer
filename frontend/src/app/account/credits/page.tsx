@@ -144,9 +144,13 @@ export default function CreditPurchasePage() {
         });
         const payload = await readJson(response);
         if (!response.ok) throw new Error(typeof payload.message === "string" ? payload.message : "Payment configuration could not be loaded.");
-        if (active) setConfig(payload as unknown as PaymentConfig);
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : "Credit purchases are temporarily unavailable.");
+        if (active) {
+          const paymentConfig = payload as unknown as PaymentConfig;
+          setConfig(paymentConfig);
+          setSelectedPackage(paymentConfig.packages[0]?.id ?? "");
+        }
+      } catch {
+        if (active) setError("Credit purchases are unavailable. Try again later.");
       } finally {
         if (active) setLoading(false);
       }
@@ -180,29 +184,34 @@ export default function CreditPurchasePage() {
     return () => window.clearInterval(timer);
   }, [order]);
 
-  async function connectWallet() {
+  async function connectWallet(): Promise<string | null> {
     setBusy(true);
     setError("");
     setNotice("");
     try {
       const provider = window.phantom?.solana;
-      if (!provider?.isPhantom) {
-        throw new Error("Install the Phantom wallet extension, then return here to connect on devnet.");
-      }
+      if (!provider?.isPhantom) throw new Error("Install Phantom to continue.");
       const connection = await provider.connect();
       const address = connection.publicKey.toString();
       if (walletAddress && walletAddress !== address) orderIdempotencyKey.current = null;
       setWalletAddress(address);
       setOrder(null);
+      return address;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Wallet connection was not completed.");
+      return null;
     } finally {
       setBusy(false);
     }
   }
 
-  async function createOrder() {
-    if (!config || !selectedPackage || !walletAddress) return;
+  async function continueCheckout() {
+    const payerAddress = walletAddress || await connectWallet();
+    if (payerAddress) await createOrder(payerAddress);
+  }
+
+  async function createOrder(payerAddress: string) {
+    if (!config || !selectedPackage || !payerAddress) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -217,7 +226,7 @@ export default function CreditPurchasePage() {
       const response = await fetch(`${API_URL}/api/wallet/solana/orders`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId: selectedPackage, payerAddress: walletAddress, idempotencyKey }),
+        body: JSON.stringify({ packageId: selectedPackage, payerAddress, idempotencyKey }),
         cache: "no-store",
       });
       const payload = await readJson(response);
@@ -274,7 +283,7 @@ export default function CreditPurchasePage() {
 
       const { signature } = await provider.signAndSendTransaction(transaction, { preflightCommitment: "confirmed" });
       setOrder({ ...order, status: "SUBMITTED", transactionSignature: signature });
-      setNotice("Payment sent. We’ll add credits only after the backend verifies the finalized devnet transaction.");
+      setNotice("Payment sent. Confirming…");
 
       const response = await fetch(`${API_URL}/api/wallet/solana/orders/${order.id}/submit`, {
         method: "POST",
@@ -287,11 +296,11 @@ export default function CreditPurchasePage() {
       if (!response.ok) {
         throw new Error(typeof payload.message === "string"
           ? payload.message
-          : "The transaction was sent, but verification is delayed. Keep this page open while we retry.");
+          : "Payment sent. Confirmation is taking longer than expected.");
       }
       setNotice(payload.order && (payload.order as PaymentOrder).status === "CREDITED"
         ? "Payment verified. SIM Credits have been added to your account."
-        : "Payment sent. We’ll keep checking devnet and update your balance after verification.");
+        : "Payment sent. We’ll update your balance when it’s confirmed.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The payment could not be completed.");
     } finally {
@@ -312,43 +321,31 @@ export default function CreditPurchasePage() {
 
       <section className={styles.content} aria-labelledby="credits-title">
         <div className={styles.heading}>
-          <p>Account balance</p>
           <h1 id="credits-title">Add SIM Credits</h1>
-          <span>Connect a wallet, choose a package, and pay on Solana devnet.</span>
         </div>
 
-        {loading ? <div className={styles.loading} role="status">Checking devnet payment settings…</div> : null}
+        {loading ? (
+          <div className={styles.loading} role="status">
+            <span className={styles.spinner} aria-hidden="true" />
+            <span>Loading…</span>
+          </div>
+        ) : null}
         {error ? <p className={styles.error} role="alert">{error}</p> : null}
         {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
 
         {!loading && config && !config.enabled ? (
           <section className={styles.unavailable} aria-label="Payments unavailable">
-            <strong>Devnet checkout is not enabled</strong>
-            <p>Credit purchases are not configured for this environment. No payment has been requested.</p>
+            <p>Credit purchases are unavailable. Try again later.</p>
           </section>
         ) : null}
 
         {!loading && config?.enabled ? (
           <div className={styles.checkout}>
-            <section className={styles.walletPanel} aria-labelledby="wallet-title">
-              <div className={styles.panelHeading}>
-                <span className={styles.step}>1</span>
-                <div><h2 id="wallet-title">Connect Phantom</h2><p>Your wallet signs the devnet transfer. It does not sign you in to SimSoccer.</p></div>
-              </div>
-              <div className={styles.walletActions}>
-                <button className={styles.secondaryButton} type="button" onClick={() => void connectWallet()} disabled={busy}>
-                  {walletAddress ? "Reconnect wallet" : "Connect wallet"}
-                </button>
-                {walletAddress ? <span className={styles.walletAddress}>{walletAddress.slice(0, 5)}…{walletAddress.slice(-5)}</span> : null}
-              </div>
-            </section>
-
             <section className={styles.packagePanel} aria-labelledby="package-title">
               <div className={styles.panelHeading}>
-                <span className={styles.step}>2</span>
-                <div><h2 id="package-title">Choose a package</h2><p>Each quote uses the current server-side SOL/USD price.</p></div>
+                <h2 id="package-title">Choose a package</h2>
               </div>
-              <fieldset className={styles.packageList} disabled={!walletAddress || Boolean(order && !terminal && !retryable)}>
+              <fieldset className={styles.packageList} disabled={busy || Boolean(order && !terminal && !retryable)}>
                 <legend className={styles.visuallyHidden}>SIM Credits package</legend>
                 {config.packages.map((item) => (
                   <label key={item.id} className={`${styles.packageOption} ${selectedPackage === item.id ? styles.packageSelected : ""}`}>
@@ -368,10 +365,11 @@ export default function CreditPurchasePage() {
                 <button
                   className={styles.primaryButton}
                   type="button"
-                  onClick={() => void createOrder()}
-                  disabled={busy || !walletAddress || !selected}
+                  onClick={() => void continueCheckout()}
+                  disabled={busy || !selected}
                 >
-                  {busy ? "Creating quote…" : retryable ? "Create a new quote" : "Get payment quote"}
+                  {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
+                  {busy ? "Please wait…" : retryable ? "Try again" : "Continue"}
                 </button>
               ) : null}
             </section>
@@ -379,18 +377,18 @@ export default function CreditPurchasePage() {
             {order ? (
               <section className={styles.orderPanel} aria-labelledby="order-title">
                 <div className={styles.panelHeading}>
-                  <span className={styles.step}>3</span>
-                  <div><h2 id="order-title">Payment order</h2><p className={`${styles.status} ${styles[`status${order.status}`] ?? ""}`}>{statusText[order.status] ?? "Payment pending"}</p></div>
+                  <div>
+                    <h2 id="order-title">Payment</h2>
+                    <p className={`${styles.status} ${styles[`status${order.status}`] ?? ""}`}>{statusText[order.status] ?? "Payment pending"}</p>
+                  </div>
                 </div>
                 <dl className={styles.quote}>
                   <div><dt>You receive</dt><dd>{formatCredits(order.creditAmount)} SIM Credits</dd></div>
-                  <div><dt>Package value</dt><dd>{formatUsd(order.usdCents)}</dd></div>
-                  <div><dt>Locked SOL amount</dt><dd>{formatSol(order.expectedLamports)}</dd></div>
-                  <div><dt>SOL/USD at quote</dt><dd>${Number(order.solUsdPrice).toLocaleString("en-US", { maximumFractionDigits: 6 })}</dd></div>
-                  <div><dt>Quote expires</dt><dd>{secondsLeft > 0 ? `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}` : "Expired"}</dd></div>
+                  <div><dt>Amount</dt><dd>{formatSol(order.expectedLamports)}</dd></div>
+                  <div><dt>Price</dt><dd>{formatUsd(order.usdCents)}</dd></div>
                 </dl>
 
-                {order.reviewReason ? <p className={styles.reviewReason}>{order.reviewReason} Contact support with the order ID if you believe this is incorrect.</p> : null}
+                {order.reviewReason ? <p className={styles.reviewReason}>{order.reviewReason}</p> : null}
                 {order.transactionSignature ? (
                   <a className={styles.explorerLink} href={`https://explorer.solana.com/tx/${encodeURIComponent(order.transactionSignature)}?cluster=devnet`} target="_blank" rel="noreferrer">
                     View transaction on Solana Explorer
@@ -399,27 +397,23 @@ export default function CreditPurchasePage() {
 
                 {order.status === "PENDING" && secondsLeft > 0 ? (
                   <button className={styles.primaryButton} type="button" onClick={() => void payWithPhantom()} disabled={busy}>
+                    {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
                     {busy ? "Waiting for wallet…" : `Pay ${formatSol(order.expectedLamports)} with Phantom`}
                   </button>
                 ) : null}
                 {retryable ? (
-                  <p className={styles.retryNote}>This attempt did not complete the order. Create a fresh quote before trying again.</p>
+                  <p className={styles.retryNote}>Payment didn’t complete. Try again.</p>
                 ) : null}
                 {order.status === "CREDITED" ? (
-                  <p className={styles.success}>Payment verified. Your SIM Credits are now in your existing account balance.</p>
+                  <p className={styles.success}>SIM Credits added.</p>
                 ) : null}
                 {order.status === "EXPIRED" ? (
-                  <p className={styles.retryNote}>This quote can no longer be used. Create a new one for the current SOL price.</p>
+                  <p className={styles.retryNote}>This quote expired. Get a new one to continue.</p>
                 ) : null}
               </section>
             ) : null}
           </div>
         ) : null}
-
-        <aside className={styles.devnetNote}>
-          <strong>Devnet only</strong>
-          <p>Use devnet SOL only and keep extra for the network fee. Devnet SOL has no cash value. SIM Credits remain in-game and cannot be transferred or withdrawn. Never send mainnet funds to this checkout.</p>
-        </aside>
       </section>
     </main>
   );

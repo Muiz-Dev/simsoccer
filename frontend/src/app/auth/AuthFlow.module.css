@@ -4,41 +4,6 @@
   background: var(--paper);
 }
 
-.header {
-  display: flex;
-  width: min(100%, 1120px);
-  min-height: 68px;
-  align-items: center;
-  justify-content: space-between;
-  margin: 14px auto 0;
-  padding: 12px 20px;
-  border: 1px solid #d2dbd4;
-  border-radius: 8px;
-  background: var(--surface, #fff);
-}
-
-.brand,
-.backLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--pitch);
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.brand svg {
-  font-size: 21px;
-}
-
-.backLink {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.backLink:hover,
 .inlineLinks button:hover,
 .textAction:hover,
 .backAction:hover {
@@ -293,11 +258,6 @@
 
 @media (max-width: 480px) {
   .page { padding-inline: 16px; }
-  .header {
-    min-height: 58px;
-    margin-top: 10px;
-    padding: 8px 12px;
-  }
   .shell { margin-top: 36px; }
   .intro h1 { font-size: 27px; }
   .form { gap: 13px; }

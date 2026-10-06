@@ -3,8 +3,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
 import { getAccessToken, requestAuth, setAccessToken, type AuthResponse } from '@/lib/auth-client';
 import styles from './AuthFlow.module.css';
 
@@ -271,14 +269,6 @@ export default function AuthFlow() {
 
   return (
     <main className={styles.page}>
-      <header className={styles.header}>
-        <Link href="/" className={styles.brand} aria-label="SimSoccer home">
-          <SportsSoccerIcon aria-hidden="true" />
-          <span>SimSoccer</span>
-        </Link>
-        <Link className={styles.backLink} href="/betting"><ArrowBackIcon fontSize="small" /> Betting desk</Link>
-      </header>
-
       <section className={styles.shell} aria-labelledby="auth-title">
         <div className={`${styles.intro} ${stage === 'signin' ? styles.signInIntro : ''}`}>
           <h1 id="auth-title">{title}</h1>

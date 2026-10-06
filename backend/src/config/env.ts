@@ -48,10 +48,6 @@ if (!_env.success) {
 
 export const env = _env.data;
 
-if (env.SOLANA_PAYMENTS_ENABLED && env.NODE_ENV === 'production') {
-  throw new Error('Solana payments are restricted to non-production devnet environments.');
-}
-
 if (env.SOLANA_PAYMENTS_ENABLED && !env.SOLANA_TREASURY_ADDRESS) {
   throw new Error('SOLANA_TREASURY_ADDRESS is required when Solana devnet payments are enabled.');
 }
