@@ -1,9 +1,9 @@
 # SimSoccer Project and Production Handoff
 
-- **Snapshot date:** 2026-10-05
-- **Repository:** `Muiz-Dev/simsoccer`
-- **Feature release deployed:** `b8bcf7e`
-- **EC2 checkout revision checked:** `b8bcf7e`
+- **Snapshot date:** 2026-10-06
+- **Repository:** `SimCore-Labs/simsoccer`
+- **Backend release deployed:** `28e97cf`
+- **EC2 checkout revision checked:** `28e97cf`
 
 This is an operational snapshot of the project and its production environment.
 It supplements [DEPLOYMENT-HANDOFF.md](./DEPLOYMENT-HANDOFF.md), which contains
@@ -287,6 +287,53 @@ The My bets and secure ticket-lookup release was pushed to `main` and deployed
 to EC2 at `b8bcf7e`. The website deploys from `main` through Vercel; backend
 services deploy separately to EC2. The pre-release EC2 checkout was `279f55f`,
 which includes the Accounts API recovery fix from `d7a308d`.
+
+### Solana devnet payment prototype release — 2026-10-06
+
+- Backend release `e58c127` was fast-forwarded onto EC2 from `origin/main`.
+- All three PM2 services (`simsoccer-runtime`, `simsoccer-accounts`, and
+  `simsoccer-settlement`) were stopped before the release and restarted after
+  the database migration and backend build. PM2 state was saved.
+- Before migration 0013, a PostgreSQL custom-format backup was created at
+  `/home/ubuntu/simsoccer-backups/simsoccer-solana-pre-migration-20261006T130508Z.dump`.
+  `pg_restore --list` verified the archive (72,945,202 bytes; SHA-256
+  `742c08ee636a11c75a5393dff80f8343ae50179c80decce47f119ee48c200a76`).
+- Migration `0013_solana_credit_payments` was applied and verified. The
+  production Drizzle migration journal now has 14 entries, and both payment
+  tables exist. No world reset, truncation, or test payment was performed.
+- The backend installed the committed lockfile with npm 11.21.0; npm 10's
+  `npm ci` rejected the lockfile as out of sync. The backend production build
+  then passed.
+- The protected backend `.env` was updated without exposing its contents.
+  `MIGRATE_BEFORE_BUILD=false`; `ALLOW_PRODUCTION_MIGRATIONS=true` is retained
+  because the runtime supervisor checks this permission when it runs
+  migrations at startup. Solana payments are enabled on `devnet`; the treasury
+  address was copied from the validated repository example without exposing
+  it in logs or documentation. Mainnet payments are not supported.
+- All three PM2 processes are `online`. Backend liveness/readiness passed;
+  PostgreSQL, Redis, and migrations report healthy. Accounts API and
+  settlement readiness passed, with a successful settlement scan and no
+  consecutive errors. The world reports `RUNNING` at Season 2 Round 35.
+- `sudo nginx -t` passed. Public website routes `/account` and
+  `/account/credits`, and public API health/readiness endpoints, returned
+  HTTP 200. The exact Vercel deployment revision was not independently
+  confirmed.
+
+### Checkout and authentication UX update — 2026-10-06
+
+- Release `28e97cf` was pushed to `main` and fast-forwarded on EC2. No database
+  migration was needed.
+- All three PM2 services were stopped before the pull/build and restarted
+  afterward. Backend build passed; PM2 state was saved.
+- Devnet payment settings were enabled in the protected backend `.env` using
+  the already-validated `.env.example` values. The runtime reports payments
+  enabled, cluster `devnet`, and a configured treasury; the address is not
+  recorded here.
+- World and Accounts API readiness passed, Nginx configuration passed, and all
+  three PM2 services are online. The world reports `RUNNING`.
+- The credit checkout now uses a concise package-first flow, and the auth
+  screen no longer renders its extra header. Vercel deployment revision still
+  needs independent confirmation.
 
 ## My bets release verification — 2026-10-05
 
