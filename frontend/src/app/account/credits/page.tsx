@@ -1,10 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getWallets } from "@wallet-standard/app";
+import type { Wallet, WalletAccount } from "@wallet-standard/base";
+import { StandardConnect, type StandardConnectFeature } from "@wallet-standard/features";
+import {
+  SolanaSignAndSendTransaction,
+  type SolanaSignAndSendTransactionFeature,
+} from "@solana/wallet-standard-features";
+import bs58 from "bs58";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
+import type { Transaction } from "@solana/web3.js";
 import { getAccessToken } from "@/lib/auth-client";
 import styles from "./page.module.css";
 
@@ -39,22 +48,146 @@ type PaymentConfig = {
   enabled: boolean;
   cluster: "devnet";
   packages: PaymentPackage[];
+  customTopUp: {
+    minCredits: number;
+    maxCredits: number;
+    stepCredits: number;
+    creditsPerUsd: number;
+  };
 };
 
-type PhantomProvider = {
+type LegacySolanaProvider = {
   isPhantom?: boolean;
+  isSolflare?: boolean;
+  isBackpack?: boolean;
+  isBraveWallet?: boolean;
+  name?: string;
   publicKey?: { toString(): string } | null;
-  connect: () => Promise<{ publicKey: { toString(): string } }>;
+  connect: () => Promise<{ publicKey?: { toString(): string } } | void>;
   signAndSendTransaction: (
-    transaction: import("@solana/web3.js").Transaction,
+    transaction: Transaction,
     options?: { preflightCommitment?: "confirmed" | "finalized" },
   ) => Promise<{ signature: string }>;
 };
 
+type StandardSolanaWallet = Wallet & {
+  features: Wallet["features"] & StandardConnectFeature & SolanaSignAndSendTransactionFeature;
+};
+
+type ConnectedWallet = {
+  id: string;
+  name: string;
+  address: string;
+  signAndSendTransaction: (transaction: Transaction) => Promise<string>;
+};
+
+type WalletChoice = {
+  id: string;
+  name: string;
+  connect: () => Promise<ConnectedWallet>;
+};
+
 declare global {
   interface Window {
-    phantom?: { solana?: PhantomProvider };
+    phantom?: { solana?: LegacySolanaProvider };
+    solana?: LegacySolanaProvider;
+    solflare?: LegacySolanaProvider;
+    backpack?: { solana?: LegacySolanaProvider };
+    braveSolana?: LegacySolanaProvider;
   }
+}
+
+function supportsDevnetWallet(wallet: Wallet): wallet is StandardSolanaWallet {
+  const connect = wallet.features[StandardConnect];
+  const send = wallet.features[SolanaSignAndSendTransaction];
+  return wallet.chains.includes("solana:devnet")
+    && typeof connect === "object"
+    && connect !== null
+    && "connect" in connect
+    && typeof connect.connect === "function"
+    && typeof send === "object"
+    && send !== null
+    && "signAndSendTransaction" in send
+    && typeof send.signAndSendTransaction === "function";
+}
+
+function standardWalletChoice(wallet: StandardSolanaWallet): WalletChoice {
+  return {
+    id: `standard:${wallet.name}`,
+    name: wallet.name,
+    connect: async () => {
+      const { accounts } = await wallet.features[StandardConnect].connect();
+      const account: WalletAccount | undefined = accounts.find((item) => (
+        item.chains.includes("solana:devnet")
+        && item.features.includes(SolanaSignAndSendTransaction)
+      ));
+      if (!account) throw new Error("No devnet account is available in this wallet.");
+      const signAndSend = wallet.features[SolanaSignAndSendTransaction].signAndSendTransaction;
+      return {
+        id: `standard:${wallet.name}`,
+        name: wallet.name,
+        address: account.address,
+        signAndSendTransaction: async (transaction) => {
+          const [result] = await signAndSend({
+            account,
+            chain: "solana:devnet",
+            transaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }),
+            options: { preflightCommitment: "confirmed", commitment: "confirmed" },
+          });
+          if (!result?.signature) throw new Error("The wallet did not return a transaction signature.");
+          return bs58.encode(result.signature);
+        },
+      };
+    },
+  };
+}
+
+function legacyWalletChoice(id: string, name: string, provider: LegacySolanaProvider): WalletChoice {
+  return {
+    id,
+    name,
+    connect: async () => {
+      const connection = await provider.connect();
+      const address = connection?.publicKey?.toString() ?? provider.publicKey?.toString();
+      if (!address) throw new Error("The wallet did not return an account.");
+      return {
+        id,
+        name,
+        address,
+        signAndSendTransaction: async (transaction) => {
+          const { signature } = await provider.signAndSendTransaction(transaction, {
+            preflightCommitment: "confirmed",
+          });
+          return signature;
+        },
+      };
+    },
+  };
+}
+
+function detectWalletChoices(): WalletChoice[] {
+  const wallets = getWallets();
+  const standardChoices = wallets.get().filter(supportsDevnetWallet).map(standardWalletChoice);
+  const seenProviders = new Set<LegacySolanaProvider>();
+  const legacyCandidates: Array<[string, string, LegacySolanaProvider | undefined]> = [
+    ["phantom", "Phantom", window.phantom?.solana],
+    ["solflare", "Solflare", window.solflare],
+    ["backpack", "Backpack", window.backpack?.solana],
+    ["brave", "Brave Wallet", window.braveSolana],
+    ["solana", "Solana Wallet", window.solana],
+  ];
+  const knownNames = new Set(standardChoices.map((choice) => choice.name.toLowerCase()));
+  const legacyChoices = legacyCandidates.flatMap(([id, name, provider]) => {
+    if (!provider || typeof provider.connect !== "function" || typeof provider.signAndSendTransaction !== "function") return [];
+    if (seenProviders.has(provider)) return [];
+    seenProviders.add(provider);
+    if (knownNames.has(name.toLowerCase())) return [];
+    const isKnownProvider = id === "solana"
+      ? Boolean(provider.isPhantom || provider.isSolflare || provider.isBackpack || provider.isBraveWallet || provider.name)
+      : true;
+    return isKnownProvider ? [legacyWalletChoice(id, name, provider)] : [];
+  });
+  return [...standardChoices, ...legacyChoices];
 }
 
 const statusText: Record<string, string> = {
@@ -95,7 +228,10 @@ export default function CreditPurchasePage() {
   const router = useRouter();
   const [config, setConfig] = useState<PaymentConfig | null>(null);
   const [selectedPackage, setSelectedPackage] = useState("");
-  const [walletAddress, setWalletAddress] = useState("");
+  const [customCreditAmount, setCustomCreditAmount] = useState("");
+  const [walletChoices, setWalletChoices] = useState<WalletChoice[]>([]);
+  const [activeWallet, setActiveWallet] = useState<ConnectedWallet | null>(null);
+  const [walletChooserOpen, setWalletChooserOpen] = useState(false);
   const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -104,6 +240,18 @@ export default function CreditPurchasePage() {
   const [secondsLeft, setSecondsLeft] = useState(0);
   const polling = useRef(false);
   const orderIdempotencyKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    const wallets = getWallets();
+    const updateWallets = () => setWalletChoices(detectWalletChoices());
+    updateWallets();
+    const unregisterAdded = wallets.on("register", updateWallets);
+    const unregisterRemoved = wallets.on("unregister", updateWallets);
+    return () => {
+      unregisterAdded();
+      unregisterRemoved();
+    };
+  }, []);
 
   const refreshOrder = useCallback(async (currentOrder: PaymentOrder, token: string) => {
     if (!API_URL || polling.current) return;
@@ -148,6 +296,7 @@ export default function CreditPurchasePage() {
           const paymentConfig = payload as unknown as PaymentConfig;
           setConfig(paymentConfig);
           setSelectedPackage(paymentConfig.packages[0]?.id ?? "");
+          setCustomCreditAmount(String(paymentConfig.customTopUp.minCredits));
         }
       } catch {
         if (active) setError("Credit purchases are unavailable. Try again later.");
@@ -184,21 +333,19 @@ export default function CreditPurchasePage() {
     return () => window.clearInterval(timer);
   }, [order]);
 
-  async function connectWallet(): Promise<string | null> {
+  async function connectWallet(choice: WalletChoice): Promise<ConnectedWallet | null> {
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const provider = window.phantom?.solana;
-      if (!provider?.isPhantom) throw new Error("Install Phantom to continue.");
-      const connection = await provider.connect();
-      const address = connection.publicKey.toString();
-      if (walletAddress && walletAddress !== address) orderIdempotencyKey.current = null;
-      setWalletAddress(address);
+      const connected = await choice.connect();
+      if (activeWallet && activeWallet.address !== connected.address) orderIdempotencyKey.current = null;
+      setActiveWallet(connected);
       setOrder(null);
-      return address;
+      setWalletChooserOpen(false);
+      return connected;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Wallet connection was not completed.");
+      setError(cause instanceof Error ? cause.message : "Wallet connection failed.");
       return null;
     } finally {
       setBusy(false);
@@ -206,12 +353,19 @@ export default function CreditPurchasePage() {
   }
 
   async function continueCheckout() {
-    const payerAddress = walletAddress || await connectWallet();
-    if (payerAddress) await createOrder(payerAddress);
+    if (activeWallet) {
+      await createOrder(activeWallet.address);
+    } else if (walletChoices.length === 0) {
+      setError("No Solana wallet found. Install a wallet and try again.");
+    } else {
+      setWalletChooserOpen(true);
+    }
   }
 
   async function createOrder(payerAddress: string) {
     if (!config || !selectedPackage || !payerAddress) return;
+    const customAmount = selectedPackage === "custom" ? Number(customCreditAmount) : undefined;
+    if (selectedPackage === "custom" && !customCreditAmountValid) return;
     setBusy(true);
     setError("");
     setNotice("");
@@ -226,7 +380,12 @@ export default function CreditPurchasePage() {
       const response = await fetch(`${API_URL}/api/wallet/solana/orders`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId: selectedPackage, payerAddress, idempotencyKey }),
+        body: JSON.stringify({
+          packageId: selectedPackage,
+          ...(customAmount === undefined ? {} : { creditAmount: customAmount }),
+          payerAddress,
+          idempotencyKey,
+        }),
         cache: "no-store",
       });
       const payload = await readJson(response);
@@ -252,13 +411,9 @@ export default function CreditPurchasePage() {
         router.replace("/auth?next=/account/credits");
         return;
       }
-      const provider = window.phantom?.solana;
-      if (!provider?.isPhantom) throw new Error("Reconnect your Phantom wallet to continue.");
-      const connected = await provider.connect();
-      const payerAddress = connected.publicKey.toString();
-      if (payerAddress !== order.payerAddress) {
-        setWalletAddress(payerAddress);
-        throw new Error("The connected wallet changed. Create a new quote for this wallet.");
+      if (!activeWallet) throw new Error("Reconnect your wallet to continue.");
+      if (activeWallet.address !== order.payerAddress) {
+        throw new Error("The connected wallet changed. Create a new quote.");
       }
 
       const { Connection, PublicKey, SystemProgram, Transaction, clusterApiUrl } = await import("@solana/web3.js");
@@ -281,7 +436,7 @@ export default function CreditPurchasePage() {
       transaction.recentBlockhash = blockhash;
       transaction.add(transfer);
 
-      const { signature } = await provider.signAndSendTransaction(transaction, { preflightCommitment: "confirmed" });
+      const signature = await activeWallet.signAndSendTransaction(transaction);
       setOrder({ ...order, status: "SUBMITTED", transactionSignature: signature });
       setNotice("Payment sent. Confirming…");
 
@@ -309,6 +464,17 @@ export default function CreditPurchasePage() {
   }
 
   const selected = config?.packages.find((item) => item.id === selectedPackage);
+  const customCreditAmountNumber = Number(customCreditAmount);
+  const customCreditAmountValid = Boolean(config?.customTopUp)
+    && Number.isSafeInteger(customCreditAmountNumber)
+    && customCreditAmountNumber >= (config?.customTopUp.minCredits ?? 0)
+    && customCreditAmountNumber <= (config?.customTopUp.maxCredits ?? 0)
+    && (customCreditAmountNumber - (config?.customTopUp.minCredits ?? 0))
+      % (config?.customTopUp.stepCredits ?? 1) === 0;
+  const canContinue = Boolean(selected) || (selectedPackage === "custom" && customCreditAmountValid);
+  const customPriceCents = config?.customTopUp
+    ? Math.round(customCreditAmountNumber * 100 / config.customTopUp.creditsPerUsd)
+    : 0;
   const terminal = order && ["CREDITED", "EXPIRED", "OVERPAID", "REQUIRES_REVIEW"].includes(order.status);
   const retryable = order && ["FAILED", "UNDERPAID"].includes(order.status) && secondsLeft > 0;
 
@@ -343,7 +509,7 @@ export default function CreditPurchasePage() {
           <div className={styles.checkout}>
             <section className={styles.packagePanel} aria-labelledby="package-title">
               <div className={styles.panelHeading}>
-                <h2 id="package-title">Choose a package</h2>
+                <h2 id="package-title">Choose amount</h2>
               </div>
               <fieldset className={styles.packageList} disabled={busy || Boolean(order && !terminal && !retryable)}>
                 <legend className={styles.visuallyHidden}>SIM Credits package</legend>
@@ -354,19 +520,62 @@ export default function CreditPurchasePage() {
                       name="credit-package"
                       value={item.id}
                       checked={selectedPackage === item.id}
-                      onChange={() => setSelectedPackage(item.id)}
+                      onChange={() => {
+                        orderIdempotencyKey.current = null;
+                        setSelectedPackage(item.id);
+                      }}
                     />
                     <span><strong>{formatCredits(item.credits)}</strong><small>SIM Credits</small></span>
                     <b>{formatUsd(item.usdCents)}</b>
                   </label>
                 ))}
+                <label className={`${styles.packageOption} ${selectedPackage === "custom" ? styles.packageSelected : ""}`}>
+                  <input
+                    type="radio"
+                    name="credit-package"
+                    value="custom"
+                    checked={selectedPackage === "custom"}
+                    onChange={() => {
+                      orderIdempotencyKey.current = null;
+                      setSelectedPackage("custom");
+                    }}
+                  />
+                  <span><strong>Custom amount</strong><small>1,000–100,000 credits</small></span>
+                  <b>Custom</b>
+                </label>
               </fieldset>
+              {selectedPackage === "custom" && config.customTopUp ? (
+                <div className={styles.customAmount}>
+                  <label htmlFor="custom-credit-amount">SIM Credits</label>
+                  <div className={styles.customAmountInput}>
+                    <input
+                      id="custom-credit-amount"
+                      type="number"
+                      min={config.customTopUp.minCredits}
+                      max={config.customTopUp.maxCredits}
+                      step={config.customTopUp.stepCredits}
+                      value={customCreditAmount}
+                      aria-invalid={!customCreditAmountValid}
+                      aria-describedby="custom-credit-price"
+                      disabled={busy || Boolean(order && !terminal && !retryable)}
+                      onChange={(event) => {
+                        orderIdempotencyKey.current = null;
+                        setCustomCreditAmount(event.target.value);
+                      }}
+                    />
+                    <span>credits</span>
+                  </div>
+                  <p id="custom-credit-price" aria-live="polite">
+                    {customCreditAmountValid ? formatUsd(customPriceCents) : "Enter 1,000–100,000 in steps of 10."}
+                  </p>
+                </div>
+              ) : null}
               {!order || terminal || retryable ? (
                 <button
                   className={styles.primaryButton}
                   type="button"
                   onClick={() => void continueCheckout()}
-                  disabled={busy || !selected}
+                  disabled={busy || !canContinue}
                 >
                   {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
                   {busy ? "Please wait…" : retryable ? "Try again" : "Continue"}
@@ -412,6 +621,34 @@ export default function CreditPurchasePage() {
                 ) : null}
               </section>
             ) : null}
+          </div>
+        ) : null}
+
+        {walletChooserOpen ? (
+          <div className={styles.walletOverlay}>
+            <section className={styles.walletDialog} role="dialog" aria-modal="true" aria-labelledby="wallet-dialog-title">
+              <h2 id="wallet-dialog-title">Choose wallet</h2>
+              <div className={styles.walletChoices}>
+                {walletChoices.map((choice) => (
+                  <button
+                    className={styles.walletChoice}
+                    key={choice.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void (async () => {
+                      const connected = await connectWallet(choice);
+                      if (connected) await createOrder(connected.address);
+                    })()}
+                  >
+                    {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
+                    {choice.name}
+                  </button>
+                ))}
+              </div>
+              <button className={styles.closeWalletDialog} type="button" onClick={() => setWalletChooserOpen(false)} disabled={busy}>
+                Cancel
+              </button>
+            </section>
           </div>
         ) : null}
       </section>

@@ -18,6 +18,12 @@ const PAYMENT_PACKAGES = [
   { id: 'credits-1000', credits: 1_000, usdCents: 100 },
   { id: 'credits-5000', credits: 5_000, usdCents: 500 },
 ] as const;
+const CUSTOM_TOP_UP = {
+  minCredits: 1_000,
+  maxCredits: 100_000,
+  stepCredits: 10,
+  creditsPerUsd: 1_000,
+} as const;
 const MAX_RECOVERY_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_CANDIDATES_PER_CHECK = 3;
 const DecimalValue = Decimal.clone({ precision: 40 });
@@ -45,6 +51,38 @@ export class SolanaPaymentError extends Error {
     super(message);
     this.name = 'SolanaPaymentError';
   }
+}
+
+type PaymentSelection = {
+  id: string;
+  credits: number;
+  usdCents: number;
+};
+
+export function resolveSolanaPaymentSelection(
+  packageId: string,
+  customCreditAmount?: number,
+): PaymentSelection {
+  const preset = PAYMENT_PACKAGES.find((item) => item.id === packageId);
+  if (preset) {
+    if (customCreditAmount !== undefined) {
+      throw new SolanaPaymentError('Choose either a package or a custom credit amount.', 400, 'INVALID_CREDIT_AMOUNT');
+    }
+    return preset;
+  }
+  if (packageId !== 'custom'
+    || typeof customCreditAmount !== 'number'
+    || !Number.isSafeInteger(customCreditAmount)
+    || customCreditAmount < CUSTOM_TOP_UP.minCredits
+    || customCreditAmount > CUSTOM_TOP_UP.maxCredits
+    || customCreditAmount % CUSTOM_TOP_UP.stepCredits !== 0) {
+    throw new SolanaPaymentError('Enter a valid custom SIM Credits amount.', 400, 'INVALID_CREDIT_AMOUNT');
+  }
+  return {
+    id: 'custom',
+    credits: customCreditAmount,
+    usdCents: customCreditAmount * 100 / CUSTOM_TOP_UP.creditsPerUsd,
+  };
 }
 
 function assertPaymentsConfigured(): string {
@@ -83,6 +121,7 @@ export function getSolanaPaymentConfig() {
       credits: item.credits,
       usdCents: item.usdCents,
     })),
+    customTopUp: CUSTOM_TOP_UP,
   };
 }
 
@@ -91,12 +130,10 @@ export async function createSolanaPaymentOrder(
   packageId: string,
   payerAddressInput: string,
   idempotencyInput: string,
+  customCreditAmount?: number,
 ): Promise<SolanaPaymentOrder> {
   const treasuryAddress = assertPaymentsConfigured();
-  const selectedPackage = PAYMENT_PACKAGES.find((item) => item.id === packageId);
-  if (!selectedPackage) {
-    throw new SolanaPaymentError('Choose an available SIM Credits package.', 400, 'INVALID_PACKAGE');
-  }
+  const selectedPackage = resolveSolanaPaymentSelection(packageId, customCreditAmount);
   const payerAddress = normalizeAddress(payerAddressInput, 'wallet address');
   if (payerAddress === treasuryAddress) {
     throw new SolanaPaymentError('The connected wallet cannot be the configured receiving wallet.', 400, 'INVALID_PAYER');
@@ -112,7 +149,9 @@ export async function createSolanaPaymentOrder(
     ))
     .limit(1);
   if (previousOrder) {
-    if (previousOrder.packageId !== selectedPackage.id || previousOrder.payerAddress !== payerAddress) {
+    if (previousOrder.packageId !== selectedPackage.id
+      || Number(previousOrder.creditAmount) !== selectedPackage.credits
+      || previousOrder.payerAddress !== payerAddress) {
       throw new SolanaPaymentError('That request key was already used for a different payment order.', 409, 'IDEMPOTENCY_KEY_REUSED');
     }
     return previousOrder;
@@ -121,7 +160,7 @@ export async function createSolanaPaymentOrder(
   const [quote] = await Promise.all([getSolUsdQuote(), assertDevnetRpc()]);
   const expectedLamports = calculateLamports(selectedPackage.usdCents, quote.priceUsd);
   if (BigInt(expectedLamports) > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new SolanaPaymentError('This package cannot be represented safely in a Solana transaction.', 503, 'PACKAGE_AMOUNT_UNSUPPORTED');
+    throw new SolanaPaymentError('This amount cannot be represented safely in a Solana transaction.', 503, 'PACKAGE_AMOUNT_UNSUPPORTED');
   }
 
   const now = new Date();
@@ -146,6 +185,7 @@ export async function createSolanaPaymentOrder(
         .limit(1);
       if (existingOrder) {
         if (existingOrder.packageId !== selectedPackage.id
+          || Number(existingOrder.creditAmount) !== selectedPackage.credits
           || existingOrder.payerAddress !== payerAddress) {
           throw new SolanaPaymentError('That request key was already used for a different payment order.', 409, 'IDEMPOTENCY_KEY_REUSED');
         }
@@ -181,6 +221,7 @@ export async function createSolanaPaymentOrder(
       .limit(1);
     if (existingOrder
       && existingOrder.packageId === selectedPackage.id
+      && Number(existingOrder.creditAmount) === selectedPackage.credits
       && existingOrder.payerAddress === payerAddress) return existingOrder;
     console.error('Solana payment order creation failed:', error);
     throw new SolanaPaymentError('A payment order could not be created. Try again.', 503, 'ORDER_CREATION_FAILED');

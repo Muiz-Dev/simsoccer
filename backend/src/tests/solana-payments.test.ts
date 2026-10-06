@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { calculateLamports } from '../payments/price-service';
-import { inspectPaymentTransaction } from '../payments/solana-payment-service';
+import {
+  inspectPaymentTransaction,
+  resolveSolanaPaymentSelection,
+} from '../payments/solana-payment-service';
 
 const payerAddress = '11111111111111111111111111111111';
 const treasuryAddress = 'Vote111111111111111111111111111111111111111';
@@ -34,6 +37,27 @@ assert.equal(calculateLamports(500, '200'), '25000000');
 assert.equal(calculateLamports(1, '3'), '3333333');
 assert.throws(() => calculateLamports(0, '200'));
 assert.throws(() => calculateLamports(100, '0'));
+
+assert.deepEqual(resolveSolanaPaymentSelection('credits-1000'), {
+  id: 'credits-1000',
+  credits: 1_000,
+  usdCents: 100,
+});
+assert.deepEqual(resolveSolanaPaymentSelection('custom', 1_000), {
+  id: 'custom',
+  credits: 1_000,
+  usdCents: 100,
+});
+assert.deepEqual(resolveSolanaPaymentSelection('custom', 100_000), {
+  id: 'custom',
+  credits: 100_000,
+  usdCents: 10_000,
+});
+for (const amount of [undefined, 990, 1_001, 100_010, 1.5]) {
+  assert.throws(() => resolveSolanaPaymentSelection('custom', amount));
+}
+assert.throws(() => resolveSolanaPaymentSelection('credits-1000', 1_000));
+assert.throws(() => resolveSolanaPaymentSelection('unknown'));
 
 assert.deepEqual(inspectPaymentTransaction(validTransaction, order, signature), {
   blockTime: 1_800_000_000,

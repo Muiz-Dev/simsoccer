@@ -100,10 +100,16 @@ const solanaPaymentStatusLimiter = rateLimit({
 });
 
 const solanaOrderRequestSchema = z.object({
-  packageId: z.enum(['credits-1000', 'credits-5000']),
+  packageId: z.enum(['credits-1000', 'credits-5000', 'custom']),
+  creditAmount: z.number().int().min(1_000).max(100_000).multipleOf(10).optional(),
   payerAddress: z.string().min(32).max(64),
   idempotencyKey: z.string().uuid(),
-}).strict();
+}).strict().refine(
+  (request) => request.packageId === 'custom'
+    ? request.creditAmount !== undefined
+    : request.creditAmount === undefined,
+  { path: ['creditAmount'] },
+);
 const solanaSignatureRequestSchema = z.object({
   signature: z.string().min(80).max(90),
 }).strict();
@@ -1268,7 +1274,7 @@ export function createApp() {
   app.post('/api/wallet/solana/orders', authenticateJwt, requireLocalAccount, solanaOrderCreateLimiter, async (req: AuthenticatedRequest, res: Response) => {
     const parsed = solanaOrderRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return res.status(400).json({ error: 'INVALID_PAYMENT_ORDER', message: 'Choose a package and connect a valid Solana wallet.' });
+      return res.status(400).json({ error: 'INVALID_PAYMENT_ORDER', message: 'Choose a credit amount and connect a valid Solana wallet.' });
     }
     try {
       const order = await createSolanaPaymentOrder(
@@ -1276,6 +1282,7 @@ export function createApp() {
         parsed.data.packageId,
         parsed.data.payerAddress,
         parsed.data.idempotencyKey,
+        parsed.data.creditAmount,
       );
       return res.status(201).json({ order: publicSolanaOrder(order) });
     } catch (error) {

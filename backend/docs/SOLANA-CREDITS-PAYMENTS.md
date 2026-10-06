@@ -8,7 +8,7 @@
 
 Solana is only a payment rail. The database remains authoritative for SIM Credits, bets, odds, market state, and settlement. A finalized devnet payment can add a `SOLANA_PURCHASE_CREDIT` entry to the existing `wallet_transactions` ledger and increase the user's existing `VIRTUAL` balance. Bet placement and settlement are unchanged.
 
-The checkout offers fixed packages of 1,000 credits for USD 1 and 5,000 credits for USD 5. Credits stay in-game and cannot be transferred or withdrawn. Devnet SOL has no cash value. The presence of this devnet prototype is not approval to sell credits or accept paid wagers on mainnet; obtain qualified legal and jurisdictional review first.
+The checkout offers preset packages of 1,000 credits for USD 1 and 5,000 credits for USD 5, plus custom top-ups from 1,000 to 100,000 credits in 10-credit increments. Custom prices use the same rate as the preset packages: 1,000 credits per USD. Credits stay in-game and cannot be transferred or withdrawn. Devnet SOL has no cash value. The presence of this devnet prototype is not approval to sell credits or accept paid wagers on mainnet; obtain qualified legal and jurisdictional review first.
 
 ## Files and data model
 
@@ -21,7 +21,7 @@ The checkout offers fixed packages of 1,000 credits for USD 1 and 5,000 credits 
 - `drizzle/0013_solana_credit_payments.sql` is the versioned schema migration.
 - `../../frontend/src/app/account/credits/` contains the Phantom devnet checkout.
 
-`solana_payment_orders` records the account, fixed package, package value in cents, CoinGecko price and observation/fetch timestamps, expected lamports, payer, treasury, devnet, unique reference, lifecycle status, expiry, and credit/verification timestamps. Its scoped idempotency key and unique reference prevent duplicate order creation and reference collisions.
+`solana_payment_orders` records the account, preset/custom amount, value in cents, CoinGecko price and observation/fetch timestamps, expected lamports, payer, treasury, devnet, unique reference, lifecycle status, expiry, and credit/verification timestamps. Its scoped idempotency key and unique reference prevent duplicate order creation and reference collisions.
 
 `solana_payment_attempts` records each observed signature once, its amount, block time, result, and reconciliation detail. A failed or incorrect attempt does not erase evidence or prevent a later exact payment before expiry. The transaction signature is globally unique in this table.
 
@@ -31,13 +31,13 @@ All routes below require an authenticated, active local account:
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/wallet/solana/config` | Returns devnet availability and fixed packages. |
-| `POST` | `/api/wallet/solana/orders` | Creates or replays an idempotent price-locked order. Body: `packageId`, `payerAddress`, `idempotencyKey`. |
+| `GET` | `/api/wallet/solana/config` | Returns devnet availability, preset packages, and custom amount limits. |
+| `POST` | `/api/wallet/solana/orders` | Creates or replays an idempotent price-locked order. Body: `packageId`, `payerAddress`, `idempotencyKey`; custom orders also include `creditAmount`. |
 | `GET` | `/api/wallet/solana/orders/:orderId` | Returns the user's order and triggers a reference scan. |
 | `POST` | `/api/wallet/solana/orders/:orderId/submit` | Records the wallet-reported signature as a verification hint; the server independently checks it. |
 | `GET` | `/api/admin/solana-payments/review` | Admin-session-only list of exceptional orders and their recorded attempts. |
 
-The browser never supplies the exchange rate, recipient, amount to credit, or network. Those are fixed or captured by the backend order.
+The browser never supplies the exchange rate, recipient, or network. The backend validates preset and custom credit amounts and fixes the corresponding USD value in the order.
 
 ## Price and amount
 
@@ -48,7 +48,7 @@ The keyless endpoint is appropriate for this opt-in devnet prototype, not produc
 Lamports are calculated with decimal arithmetic and half-up rounding:
 
 ```text
-round_half_up((package_usd_cents / 100) / sol_usd_price * 1,000,000,000)
+round_half_up((order_usd_cents / 100) / sol_usd_price * 1,000,000,000)
 ```
 
 The result is stored as an integer decimal string, not a floating-point balance. For example, USD 5 at USD 200/SOL is 25,000,000 lamports (0.025 SOL).
@@ -67,8 +67,8 @@ Lifecycle values include `PENDING`, `SUBMITTED`, `CONFIRMING`, `CREDITED`, `EXPI
 
 ## End-to-end flow
 
-1. The signed-in user connects Phantom on the checkout page and chooses a fixed package.
-2. The browser sends a package ID, payer public key, and fresh idempotency UUID.
+1. The signed-in user chooses a preset or enters a custom SIM Credits amount, then connects Phantom.
+2. The browser sends the selection, payer public key, and a fresh idempotency UUID.
 3. The backend fetches a fresh server-side quote, computes exact lamports, generates the unique reference, and persists a ten-minute order.
 4. Phantom signs and submits one native SOL transfer on devnet to the order's recipient and amount, including the order reference.
 5. The client submits the resulting signature, but the backend uses its own devnet RPC to verify the finalized transaction.
