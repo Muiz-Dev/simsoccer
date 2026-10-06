@@ -7,6 +7,7 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
+import WalletIcon from "@mui/icons-material/Wallet";
 import { useRouter } from "next/navigation";
 import AuthAction from "@/components/AuthAction";
 import { getAccessToken, subscribeAuth } from "@/lib/auth-client";
@@ -123,6 +124,11 @@ type FixtureStatistics = {
 
 type QuickMarket = { marketType: string; outcomeCode: string; label: string };
 type AcceptedBet = { id: string; ticketCode: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
+type AccountBalanceResponse = {
+  account: {
+    wallet: { balance: string; currency: string } | null;
+  };
+};
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 function createTicketCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
@@ -163,6 +169,12 @@ async function readApiResponse<T>(response: Response, fallbackMessage: string): 
   }
   if (result === null) throw new Error(fallbackMessage);
   return result as T;
+}
+
+function formatCreditBalance(balance: string): string | null {
+  const value = Number(balance);
+  if (!Number.isFinite(value)) return null;
+  return value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function marketLabel(marketType: string) {
@@ -239,6 +251,9 @@ export default function BettingDesk() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [walletBalanceUnavailable, setWalletBalanceUnavailable] = useState(false);
+  const [walletRefresh, setWalletRefresh] = useState(0);
   const idempotencyKey = useRef<string | null>(null);
   const ticketCode = useRef<string | null>(null);
 
@@ -259,15 +274,64 @@ export default function BettingDesk() {
 
   useEffect(() => {
     let active = true;
-    const unsubscribe = subscribeAuth((value) => setSignedIn(value));
+    const updateAuthState = (value: boolean) => {
+      setSignedIn(value);
+      if (!value) {
+        setWalletBalance(null);
+        setWalletBalanceUnavailable(false);
+      }
+    };
+    const unsubscribe = subscribeAuth(updateAuthState);
     void getAccessToken()
-      .then((token) => { if (active) setSignedIn(Boolean(token)); })
-      .catch(() => { if (active) setSignedIn(false); });
+      .then((token) => { if (active) updateAuthState(Boolean(token)); })
+      .catch(() => { if (active) updateAuthState(false); });
     return () => {
       active = false;
       unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (signedIn !== true) return;
+
+    let active = true;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          if (active) {
+            setSignedIn(false);
+            setWalletBalance(null);
+            setWalletBalanceUnavailable(false);
+          }
+          return;
+        }
+        const response = await fetch("/api/auth/account/me", {
+          headers: { Authorization: ["Bearer", token].join(" ") },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const account = await readApiResponse<AccountBalanceResponse>(response, "Credit balance could not be loaded.");
+        const balance = account.account.wallet?.balance ?? null;
+        if (active) {
+          setWalletBalance(balance);
+          setWalletBalanceUnavailable(balance === null || formatCreditBalance(balance) === null);
+          if (balance === null || formatCreditBalance(balance) === null) setWalletBalance(null);
+        }
+      } catch {
+        if (active && !controller.signal.aborted) {
+          setWalletBalance(null);
+          setWalletBalanceUnavailable(true);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [signedIn, walletRefresh]);
 
   useEffect(() => {
     let stopped = false;
@@ -450,6 +514,7 @@ export default function BettingDesk() {
       idempotencyKey.current = null;
       ticketCode.current = null;
       setAcceptedBet(accepted);
+      setWalletRefresh((current) => current + 1);
       setSelections([]);
       setStake("");
       setSavedCode("");
@@ -677,10 +742,20 @@ export default function BettingDesk() {
           <Link href="/">Match centre</Link>
           <Link href="/bets">My bets</Link>
           <AuthAction />
-          <span className={styles.worldState}>
-            <span aria-hidden="true" />
-            Virtual world
-          </span>
+          {signedIn ? (
+            <span
+              className={styles.walletBalance}
+              aria-label={walletBalanceUnavailable
+                ? "Credit balance unavailable"
+                : `Credit balance ${walletBalance === null ? "loading" : `${formatCreditBalance(walletBalance)} credits`}`}
+              title="Play-money credit balance"
+              aria-live="polite"
+            >
+              <WalletIcon aria-hidden="true" />
+              <span>{walletBalanceUnavailable ? "Unavailable" : walletBalance === null ? "Loading…" : formatCreditBalance(walletBalance)}</span>
+              {!walletBalanceUnavailable && walletBalance !== null ? <small>credits</small> : null}
+            </span>
+          ) : null}
         </div>
       </header>
 

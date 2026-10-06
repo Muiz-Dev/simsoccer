@@ -62,17 +62,24 @@
   color: var(--desk-pitch);
 }
 
-.worldState {
+.walletBalance {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
+  color: var(--desk-pitch-deep);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
 }
 
-.worldState > span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--desk-pitch);
+.walletBalance svg {
+  font-size: 16px;
+}
+
+.walletBalance small {
+  color: var(--desk-muted);
+  font-size: 10px;
+  font-weight: 500;
 }
 
 .titleBar {
@@ -1251,7 +1258,16 @@
     font-size: 11px;
   }
 
-  .worldState {
+  .walletBalance {
+    gap: 3px;
+    font-size: 10px;
+  }
+
+  .walletBalance svg {
+    font-size: 14px;
+  }
+
+  .walletBalance small {
     display: none;
   }
 
