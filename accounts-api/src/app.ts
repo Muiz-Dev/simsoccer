@@ -5,7 +5,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import helmet from 'helmet';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { AuthCapacityError, changePassword, completePasswordChange, getAccount, authenticatePassword, completePasswordRecovery, createSession, listActiveSessions, register, requestPasswordChange, requestPasswordless, requestPasswordRecovery, refreshSession, revokeAllSessions, revokeRefreshSession, revokeSessionFamily, verifyEmailChallenge, updateAccountProfile, updateProfileDetails } from './auth-service.js';
+import { AuthCapacityError, changePassword, completePasswordChange, getAccount, authenticatePassword, completePasswordRecovery, createSession, listActiveSessions, register, requestPasswordChange, requestPasswordless, requestPasswordRecovery, refreshSession, revokeAllSessions, revokeRefreshSession, revokeSessionFamily, verifyEmailChallenge, verifyPasswordChangeCode, updateAccountProfile, updateProfileDetails } from './auth-service.js';
 import { sendPasswordChangedNotice } from './auth-mailer.js';
 import { digestSecret, publicJwks } from './auth-crypto.js';
 import { requireVerifiedIdentity, type AuthenticatedRequest } from './auth.js';
@@ -127,6 +127,15 @@ async function allowEmailAction(email: string, action: string): Promise<boolean>
     60 * 60,
   ) as number;
   return count <= 5;
+}
+
+async function claimPasswordChangeCodeCooldown(userId: string): Promise<boolean> {
+  if (!redis) {
+    if (env.NODE_ENV === 'production') throw new Error('Distributed auth rate limiting is unavailable.');
+    return true;
+  }
+  const key = `simsoccer:accounts:password-change-code:${digestSecret(userId)}`;
+  return (await redis.set(key, '1', 'EX', 180, 'NX')) === 'OK';
 }
 
 function getErrorMetadata(error: unknown): Record<string, string | number> {
@@ -355,6 +364,14 @@ export function createApp() {
       res.status(401).json({ error: 'UNAUTHORIZED', message: 'Sign in to continue.' });
       return;
     }
+    if (!await claimPasswordChangeCodeCooldown(req.identity.id)) {
+      res.setHeader('Retry-After', '180');
+      res.status(429).json({
+        error: 'TOO_MANY_ATTEMPTS',
+        message: 'Wait 3 minutes before requesting a new verification code.',
+      });
+      return;
+    }
     const challenge = await requestPasswordChange(req.identity.id);
     if (!challenge) {
       res.status(404).json({ error: 'ACCOUNT_NOT_FOUND', message: 'Sign in again to update your password.' });
@@ -369,17 +386,16 @@ export function createApp() {
   app.post('/api/auth/password/change/verify', authLimiter, requireVerifiedIdentity, async (req: AuthenticatedRequest, res: Response) => {
     const parsed = passwordChangeCompleteSchema.safeParse(req.body ?? {});
     if (!parsed.success || !req.identity) {
-      res.status(400).json({ error: 'INVALID_PASSWORD_CHANGE', message: 'Enter the eight-digit code and a new password of at least 12 characters.' });
+      res.status(400).json({ error: 'INVALID_PASSWORD_CHANGE', message: 'Enter a new password of at least 12 characters.' });
       return;
     }
     const changedEmail = await completePasswordChange(
       req.identity.id,
       parsed.data.challengeId,
-      parsed.data.code,
       parsed.data.newPassword,
     );
     if (!changedEmail) {
-      res.status(400).json({ error: 'CODE_INVALID_OR_EXPIRED', message: 'That code is invalid or expired. Request a new one.' });
+      res.status(400).json({ error: 'VERIFICATION_INVALID_OR_EXPIRED', message: 'Your verification expired. Request a new code.' });
       return;
     }
     const notificationSent = await notifyPasswordChanged(changedEmail);
@@ -391,6 +407,24 @@ export function createApp() {
     );
     setSessionCookies(res, session.refreshToken, session.deviceToken);
     res.json({ accessToken: session.accessToken, account: session.account, notificationSent });
+  });
+
+  app.post('/api/auth/password/change/confirm', authLimiter, requireVerifiedIdentity, async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = challengeSchema.safeParse(req.body ?? {});
+    if (!parsed.success || !req.identity) {
+      res.status(400).json({ error: 'INVALID_CODE', message: 'Enter the eight-digit code from your email.' });
+      return;
+    }
+    const verifiedChallengeId = await verifyPasswordChangeCode(
+      req.identity.id,
+      parsed.data.challengeId,
+      parsed.data.code,
+    );
+    if (!verifiedChallengeId) {
+      res.status(400).json({ error: 'CODE_INVALID_OR_EXPIRED', message: 'That code is invalid or expired. Request a new one.' });
+      return;
+    }
+    res.json({ challengeId: verifiedChallengeId });
   });
 
   app.post('/api/auth/refresh', refreshLimiter, async (req, res) => {

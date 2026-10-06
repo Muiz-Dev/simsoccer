@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
@@ -21,19 +21,39 @@ type AccountSession = {
   current: boolean;
   deviceRecognized: boolean;
 };
+type PasswordStep = "request" | "code" | "password";
 
 export default function AccountSettingsPage() {
   const router = useRouter();
+  const passwordDialogRef = useRef<HTMLDialogElement>(null);
+  const actionInFlight = useRef(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [passwordStep, setPasswordStep] = useState<PasswordStep>("request");
+  const [modalError, setModalError] = useState("");
   const [challengeId, setChallengeId] = useState("");
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [profile, setProfile] = useState({ firstName: "", lastName: "", phone: "" });
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const resendCountdown = `${Math.floor(resendSeconds / 60)}:${String(resendSeconds % 60).padStart(2, "0")}`;
+
+  function beginAction() {
+    if (actionInFlight.current) return false;
+    actionInFlight.current = true;
+    setBusy(true);
+    return true;
+  }
+
+  function endAction() {
+    actionInFlight.current = false;
+    setBusy(false);
+  }
 
   useEffect(() => {
     let active = true;
@@ -77,6 +97,19 @@ export default function AccountSettingsPage() {
     return () => { active = false; };
   }, [router]);
 
+  useEffect(() => {
+    const dialog = passwordDialogRef.current;
+    if (!dialog) return;
+    if (passwordModalOpen && !dialog.open) dialog.showModal();
+    if (!passwordModalOpen && dialog.open) dialog.close();
+  }, [passwordModalOpen]);
+
+  useEffect(() => {
+    if (!resendSeconds) return;
+    const timer = window.setTimeout(() => setResendSeconds((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -101,10 +134,27 @@ export default function AccountSettingsPage() {
     }
   }
 
+  async function continueToPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!beginAction()) return;
+    setModalError("");
+    try {
+      const token = await restoreAccessToken();
+      if (!token) throw new Error("Your session expired. Sign in again.");
+      const result = await requestAuth("password/change/confirm", { challengeId, code }, token);
+      if (!result.challengeId) throw new Error("The code could not be verified. Request a new one.");
+      setChallengeId(result.challengeId);
+      setPasswordStep("password");
+    } catch (cause) {
+      setModalError(cause instanceof Error ? cause.message : "The code could not be verified. Try again.");
+    } finally {
+      endAction();
+    }
+  }
+
   async function requestCode() {
-    setBusy(true);
-    setError("");
-    setNotice("");
+    if (!beginAction()) return;
+    setModalError("");
     try {
       const token = await restoreAccessToken();
       if (!token) throw new Error("Your session expired. Sign in again.");
@@ -113,23 +163,25 @@ export default function AccountSettingsPage() {
       setChallengeId(result.challengeId);
       setCode("");
       setNewPassword("");
-      setNotice("Check your email for a confirmation code.");
+      setPasswordStep("code");
+      setResendSeconds(3 * 60);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "A confirmation code could not be sent. Try again.");
+      const message = cause instanceof Error ? cause.message : "A confirmation code could not be sent. Try again.";
+      setModalError(message);
+      if (/wait.*minutes|rate limit/i.test(message)) setResendSeconds(3 * 60);
     } finally {
-      setBusy(false);
+      endAction();
     }
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
-    setError("");
-    setNotice("");
+    if (!beginAction()) return;
+    setModalError("");
     try {
       const token = await restoreAccessToken();
       if (!token) throw new Error("Your session expired. Sign in again.");
-      const result = await requestAuth("password/change/verify", { challengeId, code, newPassword }, token);
+      const result = await requestAuth("password/change/verify", { challengeId, newPassword }, token);
       if (!result.accessToken) throw new Error("Your password could not be updated. Try again.");
       const sessionResponse = await fetch("/api/auth/sessions", {
         headers: { Authorization: `Bearer ${result.accessToken}` },
@@ -144,18 +196,22 @@ export default function AccountSettingsPage() {
       setChallengeId("");
       setCode("");
       setNewPassword("");
+      setPasswordStep("request");
+      setPasswordModalOpen(false);
       setNotice(result.notificationSent === false
         ? "Password changed. Other sessions were signed out, but the security email could not be sent."
         : "Password changed. Other sessions were signed out.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Your password could not be changed. Try again.");
+      const message = cause instanceof Error ? cause.message : "Your password could not be changed. Try again.";
+      setModalError(message);
+      if (/expired/i.test(message)) setPasswordStep("request");
     } finally {
-      setBusy(false);
+      endAction();
     }
   }
 
   async function revokeSession(familyId: string) {
-    setBusy(true);
+    if (!beginAction()) return;
     setError("");
     setNotice("");
     try {
@@ -167,12 +223,12 @@ export default function AccountSettingsPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That session could not be signed out. Try again.");
     } finally {
-      setBusy(false);
+      endAction();
     }
   }
 
   async function signOutEverywhere() {
-    setBusy(true);
+    if (!beginAction()) return;
     setError("");
     try {
       const token = await restoreAccessToken();
@@ -184,7 +240,7 @@ export default function AccountSettingsPage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Your sessions could not be closed. Try again.");
     } finally {
-      setBusy(false);
+      endAction();
     }
   }
 
@@ -206,42 +262,33 @@ export default function AccountSettingsPage() {
             <section className={styles.settingsSection} aria-labelledby="profile-title">
               <div className={styles.sectionHeading}>
                 <h2 id="profile-title">Profile details</h2>
-                <p>{account.email}</p>
               </div>
               <form className={styles.settingsForm} onSubmit={(event) => void saveProfile(event)}>
-                <label>First name<input autoComplete="given-name" required maxLength={80} value={profile.firstName} onChange={(event) => setProfile({ ...profile, firstName: event.target.value })} /></label>
-                <label>Last name<input autoComplete="family-name" required maxLength={80} value={profile.lastName} onChange={(event) => setProfile({ ...profile, lastName: event.target.value })} /></label>
-                <label>Phone number<input autoComplete="tel" maxLength={24} value={profile.phone} onChange={(event) => setProfile({ ...profile, phone: event.target.value })} /></label>
-                <button type="submit" disabled={busy}>{busy ? <span className={styles.buttonSpinner} aria-label="Saving" /> : "Save details"}</button>
+                <label>First name<input autoComplete="given-name" value={account.firstName ?? ""} disabled /></label>
+                <label>Last name<input autoComplete="family-name" value={account.lastName ?? ""} disabled /></label>
+                <label>Email<input autoComplete="email" value={account.email} disabled /></label>
+                <label>Phone number<input autoComplete="tel" value={account.phone ?? ""} disabled /></label>
+                <div className={styles.phoneVerification}>
+                  <span>Phone number not verified</span>
+                  <button type="button" disabled>Verify phone number (coming soon)</button>
+                </div>
+                <button type="submit" disabled>Save details</button>
               </form>
             </section>
 
             <section className={styles.settingsSection} aria-labelledby="password-title">
               <div className={styles.sectionHeading}>
                 <h2 id="password-title">Password</h2>
-                <p>We’ll email you a code before you can change it.</p>
+                <p>Confirm your email before choosing a new password.</p>
               </div>
-              {!challengeId ? (
-                <button className={styles.primaryButton} type="button" onClick={() => void requestCode()} disabled={busy}>
-                  {busy ? <span className={styles.buttonSpinner} aria-label="Sending code" /> : "Send confirmation code"}
-                </button>
-              ) : (
-                <form className={styles.settingsForm} onSubmit={(event) => void changePassword(event)}>
-                  <label>Email code<input inputMode="numeric" autoComplete="one-time-code" required minLength={8} maxLength={8} pattern="[0-9]{8}" value={code} onChange={(event) => setCode(event.target.value)} /></label>
-                  <label>New password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
-                  <div className={styles.formActions}>
-                    <button type="submit" disabled={busy}>{busy ? <span className={styles.buttonSpinner} aria-label="Updating password" /> : "Change password"}</button>
-                    <button className={styles.textButton} type="button" onClick={() => void requestCode()} disabled={busy}>Send another code</button>
-                    <button className={styles.textButton} type="button" onClick={() => { setChallengeId(""); setCode(""); }} disabled={busy}>Cancel</button>
-                  </div>
-                </form>
-              )}
+              <button className={styles.primaryButton} type="button" onClick={() => { setModalError(""); setPasswordModalOpen(true); }} disabled={busy}>
+                Change password
+              </button>
             </section>
 
             <section className={styles.settingsSection} aria-labelledby="sessions-title">
               <div className={styles.sectionHeading}>
                 <h2 id="sessions-title">Signed-in sessions</h2>
-                <p>Sign out any session you don’t recognize.</p>
               </div>
               <button className={styles.primaryButton} type="button" onClick={() => void signOutEverywhere()} disabled={busy}>Sign out everywhere</button>
               {sessions.length ? (
@@ -260,6 +307,56 @@ export default function AccountSettingsPage() {
             </section>
           </div>
         ) : null}
+        <dialog
+          ref={passwordDialogRef}
+          className={styles.passwordDialog}
+          aria-labelledby="password-dialog-title"
+          onClose={() => setPasswordModalOpen(false)}
+          onCancel={() => setPasswordModalOpen(false)}
+        >
+          <div className={styles.passwordDialogHeader}>
+            <h2 id="password-dialog-title">
+              {passwordStep === "request" ? "Confirm your email" : passwordStep === "code" ? "Enter your code" : "Choose a new password"}
+            </h2>
+            <button type="button" className={styles.dialogClose} onClick={() => setPasswordModalOpen(false)} aria-label="Close password change">×</button>
+          </div>
+          {modalError ? <p className={styles.error} role="alert">{modalError}</p> : null}
+          {passwordStep === "request" ? (
+            <div className={styles.dialogContent}>
+              <p>We’ll send an eight-digit confirmation code to <strong>{account?.email}</strong>.</p>
+              <button className={styles.primaryButton} type="button" onClick={() => void requestCode()} disabled={busy || resendSeconds > 0}>
+                {busy ? <span className={styles.buttonSpinner} aria-label="Sending code" /> : "Send verification code"}
+              </button>
+              {resendSeconds > 0 ? <p className={styles.dialogAvailability} role="status">Available in {resendCountdown}</p> : null}
+            </div>
+          ) : null}
+          {passwordStep === "code" ? (
+            <form className={styles.settingsForm} onSubmit={continueToPassword}>
+              <p className={styles.dialogCopy}>Enter the code sent to {account?.email}. We’ll verify it before asking you to choose a new password.</p>
+              <label>Email code<input inputMode="numeric" autoComplete="one-time-code" required minLength={8} maxLength={8} pattern="[0-9]{8}" value={code} onChange={(event) => setCode(event.target.value)} /></label>
+              <div className={styles.formActions}>
+                <button type="submit" disabled={busy || !/^\d{8}$/.test(code)}>Continue</button>
+                <button className={styles.textButton} type="button" onClick={() => setPasswordModalOpen(false)} disabled={busy}>Cancel</button>
+              </div>
+              <div className={styles.resendAction}>
+                <button className={styles.textButton} type="button" onClick={() => void requestCode()} disabled={busy || resendSeconds > 0}>Request a new code</button>
+                {resendSeconds > 0 ? <span aria-live="polite">Available in {resendCountdown}</span> : null}
+              </div>
+            </form>
+          ) : null}
+          {passwordStep === "password" ? (
+            <form className={styles.settingsForm} onSubmit={(event) => void changePassword(event)}>
+              <p className={styles.dialogCopy}>Choose a password with at least 12 characters.</p>
+              <label>New password<input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+              <div className={styles.formActions}>
+                <button type="submit" disabled={busy || newPassword.length < 12}>
+                  {busy ? <span className={styles.buttonSpinner} aria-label="Updating password" /> : "Update password"}
+                </button>
+                <button className={styles.textButton} type="button" onClick={() => { setModalError(""); setPasswordStep("code"); }} disabled={busy}>Back</button>
+              </div>
+            </form>
+          ) : null}
+        </dialog>
       </section>
     </main>
   );

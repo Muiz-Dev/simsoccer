@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emailSchema, normalizeEmail, passwordChangeCompleteSchema, passwordSchema, profileDetailsSchema, profileSchema } from '../validation.js';
+import { challengeSchema, emailSchema, normalizeEmail, passwordChangeCompleteSchema, passwordSchema, profileDetailsSchema, profileSchema } from '../validation.js';
 
 test('normalizes account email consistently', () => {
   assert.equal(normalizeEmail('  User@Example.COM '), 'user@example.com');
@@ -57,13 +57,13 @@ test('profile detail updates do not rewrite terms acceptance or privacy notice s
   }).success, false);
 });
 
-test('password change confirmation requires a one-time code and strong new password', () => {
+test('password change uses a verified challenge and a strong new password', () => {
   const valid = {
     challengeId: 'a'.repeat(48),
-    code: '12345678',
     newPassword: 'correct horse battery staple',
   };
   assert.equal(passwordChangeCompleteSchema.safeParse(valid).success, true);
-  assert.equal(passwordChangeCompleteSchema.safeParse({ ...valid, code: '1234' }).success, false);
   assert.equal(passwordChangeCompleteSchema.safeParse({ ...valid, newPassword: 'short' }).success, false);
+  assert.equal(challengeSchema.safeParse({ challengeId: valid.challengeId, code: '12345678' }).success, true);
+  assert.equal(challengeSchema.safeParse({ challengeId: valid.challengeId, code: '1234' }).success, false);
 });

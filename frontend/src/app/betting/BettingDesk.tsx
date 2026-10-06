@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -130,6 +131,17 @@ type AccountBalanceResponse = {
   };
 };
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const leagueLogoByName: Record<string, string> = {
+  "la liga": "/leagues/la-liga.svg",
+  laliga: "/leagues/la-liga.svg",
+  "premier league": "/leagues/premier-league.svg",
+  "serie a": "/leagues/serie-a.svg",
+};
+
+function getLeagueLogo(name: string): string | null {
+  return leagueLogoByName[name.trim().toLocaleLowerCase()] ?? null;
+}
+
 function createTicketCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(18));
   let binary = "";
@@ -770,18 +782,25 @@ export default function BettingDesk() {
         <nav className={styles.competitionRail} aria-label="Competitions">
           <h2>Competitions</h2>
           <div className={styles.competitionList}>
-            {leaguesForRound.map((league) => (
-              <button
-                className={selectedLeagueId === league.id ? styles.competitionActive : ""}
-                key={league.id}
-                type="button"
-                aria-pressed={selectedLeagueId === league.id}
-                onClick={() => setSelectedLeagueId(league.id)}
-              >
-                <span className={styles.flag} aria-hidden="true">●</span>
-                {league.name}
-              </button>
-            ))}
+            {leaguesForRound.map((league) => {
+              const logo = getLeagueLogo(league.name);
+              return (
+                <button
+                  className={selectedLeagueId === league.id ? styles.competitionActive : ""}
+                  key={league.id}
+                  type="button"
+                  aria-pressed={selectedLeagueId === league.id}
+                  onClick={() => setSelectedLeagueId(league.id)}
+                >
+                  {logo ? (
+                    <Image className={styles.leagueLogo} src={logo} alt="" width={22} height={22} aria-hidden="true" />
+                  ) : (
+                    <SportsSoccerIcon className={styles.leagueLogoFallback} aria-hidden="true" />
+                  )}
+                  <span>{league.name}</span>
+                </button>
+              );
+            })}
             {!leaguesForRound.length && <span className={styles.muted}>No scheduled competitions</span>}
           </div>
         </nav>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
@@ -9,7 +10,6 @@ import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import SearchIcon from "@mui/icons-material/Search";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import AuthAction from "@/components/AuthAction";
-import OpenBetsLink from "@/components/OpenBetsLink";
 import { restoreAccessToken } from "@/lib/auth-client";
 import styles from "./BetsPage.module.css";
 
@@ -100,7 +100,6 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
       <header className={styles.ticketHeader}>
         <div>
           <time dateTime={ticket.placedAt}>{new Date(ticket.placedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</time>
-          <span>Play-money ticket</span>
         </div>
         <span className={`${styles.status} ${styles[`status${ticket.status}`] ?? ""}`}>{ticketStatus}</span>
       </header>
@@ -412,23 +411,21 @@ export default function BetsPage() {
           <span>SimSoccer</span>
         </Link>
         <nav aria-label="Page links">
+          <Link className={styles.headerNavLink} href="/betting">Markets</Link>
           {signedIn ? (
-            <>
-              <OpenBetsLink active className={styles.openBetsLink} />
-              <div className={styles.accountBalance}>
-                <AuthAction />
-                <span
-                  className={styles.balanceAmount}
-                  aria-label={walletBalanceUnavailable
-                    ? "Credit balance unavailable"
-                    : `Credit balance ${walletBalance === null ? "loading" : `${walletBalance} credits`}`}
-                  title="Play-money credit balance"
-                  aria-live="polite"
-                >
-                  {walletBalanceUnavailable ? "Unavailable" : walletBalance ?? "Loading…"}
-                </span>
-              </div>
-            </>
+            <div className={styles.accountBalance}>
+              <AuthAction />
+              <span
+                className={styles.balanceAmount}
+                aria-label={walletBalanceUnavailable
+                  ? "Credit balance unavailable"
+                  : `Credit balance ${walletBalance === null ? "loading" : `${walletBalance} credits`}`}
+                title="Play-money credit balance"
+                aria-live="polite"
+              >
+                {walletBalanceUnavailable ? "Unavailable" : walletBalance ?? "Loading…"}
+              </span>
+            </div>
           ) : signedIn === false ? <AuthAction /> : null}
         </nav>
       </header>
@@ -505,8 +502,9 @@ export default function BetsPage() {
             {historyError ? <p className={styles.error} role="alert">{historyError}</p> : null}
             {!loadingHistory && !historyError && tickets.length === 0 ? (
               <div className={styles.empty}>
-                <p>{tab === "OPEN" ? "No open tickets." : "No settled tickets yet."}</p>
-                <Link href="/betting">Go to the betting desk</Link>
+                <Image src="/illustrations/football-player.svg" alt="" width={150} height={191} aria-hidden="true" />
+                <p>{tab === "OPEN" ? "No open tickets yet" : "No settled tickets yet."}</p>
+                {tab === "OPEN" ? <Link href="/betting">Browse markets</Link> : null}
               </div>
             ) : null}
             <div className={styles.ticketList}>

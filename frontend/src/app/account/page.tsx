@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SecurityIcon from "@mui/icons-material/Security";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import WalletIcon from "@mui/icons-material/Wallet";
+import OpenBetsLink from "@/components/OpenBetsLink";
 import { restoreAccessToken, signOut } from "@/lib/auth-client";
 import styles from "./page.module.css";
 
@@ -78,18 +78,15 @@ export default function AccountPage() {
     <main className={styles.page}>
       <header className={styles.header}>
         <Link href="/" className={styles.brand}><SportsSoccerIcon aria-hidden="true" /><span>SimSoccer</span></Link>
-        <Link className={styles.backLink} href="/betting"><ArrowBackIcon fontSize="small" /> Betting desk</Link>
+      <nav className={styles.headerNav} aria-label="Page links">
+        <Link className={styles.headerNavLink} href="/betting">Markets</Link>
+        <OpenBetsLink className={styles.headerNavLink} />
+      </nav>
       </header>
       <section className={styles.content} aria-labelledby="account-title">
-        <div className={styles.heading}>
-          <div>
-            <p>Your account</p>
-            <h1 id="account-title">Account</h1>
-          </div>
-          <button type="button" onClick={() => void handleSignOut()} disabled={busy}>
-            {busy ? <span className={styles.buttonSpinner} aria-label="Signing out" /> : "Sign out"}
-          </button>
-        </div>
+      <div className={styles.heading}>
+        <h1 id="account-title">Account</h1>
+      </div>
 
         {loading ? (
           <div className={styles.overviewSkeleton} role="status" aria-label="Loading account">
@@ -111,9 +108,8 @@ export default function AccountPage() {
                 </div>
               </div>
               <div className={styles.balance}>
-                <span>Play-money balance</span>
+                <span>Credit balance</span>
                 <strong>{Number(account.wallet?.balance ?? 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-                <small>Credits have no cash value</small>
               </div>
             </section>
 
@@ -127,6 +123,13 @@ export default function AccountPage() {
               ))}
             </nav>
           </>
+        ) : null}
+        {!loading && account ? (
+          <div className={styles.signOutAction}>
+            <button type="button" onClick={() => void handleSignOut()} disabled={busy}>
+              {busy ? <span className={styles.buttonSpinner} aria-label="Signing out" /> : "Sign out"}
+            </button>
+          </div>
         ) : null}
       </section>
     </main>

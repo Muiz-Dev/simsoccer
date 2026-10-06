@@ -24,6 +24,7 @@ const allowedPaths = new Set([
   'password-reset/complete',
   'password/change',
   'password/change/request',
+  'password/change/confirm',
   'password/change/verify',
   'refresh',
   'logout',

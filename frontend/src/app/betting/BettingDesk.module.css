@@ -197,9 +197,17 @@
   color: var(--desk-pitch-deep);
 }
 
-.flag {
+.leagueLogo,
+.leagueLogoFallback {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  object-fit: contain;
+}
+
+.leagueLogoFallback {
   color: var(--desk-pitch);
-  font-size: 10px;
 }
 
 .muted {
@@ -1402,6 +1410,7 @@
   .competitionList button {
     min-height: 34px;
     flex: 0 0 auto;
+    gap: 7px;
     border: 1px solid var(--desk-rule);
     background: var(--desk-white);
     padding-inline: 9px;
@@ -1414,7 +1423,14 @@
     color: white;
   }
 
-  .competitionActive .flag {
+  .competitionList .leagueLogo,
+  .competitionList .leagueLogoFallback {
+    width: 18px;
+    height: 18px;
+    flex-basis: 18px;
+  }
+
+  .competitionActive .leagueLogoFallback {
     color: #b4e6c7;
   }
 

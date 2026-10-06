@@ -25,7 +25,6 @@ export const passwordChangeSchema = z.object({
 }).strict();
 export const passwordChangeCompleteSchema = z.object({
   challengeId: z.string().min(40).max(100),
-  code: z.string().regex(/^\d{8}$/),
   newPassword: passwordSchema,
 }).strict();
 export const challengeSchema = z.object({

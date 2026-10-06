@@ -47,7 +47,7 @@ export type AuthUser = {
   phone: string | null;
 };
 
-export type ChallengePurpose = 'verify' | 'login' | 'passwordless' | 'recovery' | 'password_change';
+export type ChallengePurpose = 'verify' | 'login' | 'passwordless' | 'recovery' | 'password_change' | 'password_change_verified';
 
 export type ChallengeResult = { challengeId: string };
 export type SessionResult = {
@@ -516,28 +516,23 @@ export async function requestPasswordChange(userId: string): Promise<ChallengeRe
   return createChallenge(user.email, 'password_change', userId);
 }
 
-export async function completePasswordChange(
+export async function verifyPasswordChangeCode(
   userId: string,
   challengeId: string,
   code: string,
-  newPassword: string,
 ): Promise<string | null> {
-  const passwordHash = await runPasswordWork(() => argon2.hash(newPassword, passwordOptions));
+  const verifiedChallengeId = createSecret();
   return database.begin(async (tx) => {
-    const [user] = await tx<{ email: string }[]>`
-      SELECT email FROM users WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE' FOR UPDATE
-    `;
-    if (!user) return null;
-
     const [challenge] = await tx<{
       id: string;
       user_id: string | null;
+      email: string;
       code_hash: string;
       attempts: number;
       expires_at: Date;
       consumed_at: Date | null;
     }[]>`
-      SELECT id, user_id, code_hash, attempts, expires_at, consumed_at
+      SELECT id, user_id, email, code_hash, attempts, expires_at, consumed_at
       FROM auth_challenges
       WHERE challenge_hash = ${digestSecret(challengeId)} AND purpose = 'password_change'
       FOR UPDATE
@@ -550,14 +545,55 @@ export async function completePasswordChange(
       return null;
     }
 
-    const codeHash = digestSecret(`${challengeId}:${code}`);
-    if (!hashesMatch(challenge.code_hash, codeHash)) {
+    if (!hashesMatch(challenge.code_hash, digestSecret(`${challengeId}:${code}`))) {
       const attempts = challenge.attempts + 1;
       await tx`
         UPDATE auth_challenges
         SET attempts = ${attempts}, consumed_at = CASE WHEN ${attempts} >= 5 THEN now() ELSE consumed_at END
         WHERE id = ${challenge.id}
       `;
+      return null;
+    }
+
+    await tx`UPDATE auth_challenges SET consumed_at = now() WHERE id = ${challenge.id}`;
+    await tx`
+      INSERT INTO auth_challenges (challenge_hash, user_id, email, purpose, code_hash, expires_at)
+      VALUES (
+        ${digestSecret(verifiedChallengeId)}, ${userId}, ${challenge.email}, 'password_change_verified',
+        ${digestSecret(verifiedChallengeId)}, ${new Date(Date.now() + challengeLifetime)}
+      )
+    `;
+    return verifiedChallengeId;
+  });
+}
+
+export async function completePasswordChange(
+  userId: string,
+  verifiedChallengeId: string,
+  newPassword: string,
+): Promise<string | null> {
+  const passwordHash = await runPasswordWork(() => argon2.hash(newPassword, passwordOptions));
+  return database.begin(async (tx) => {
+    const [user] = await tx<{ email: string }[]>`
+      SELECT email FROM users WHERE id = ${userId} AND is_email_verified = true AND account_status = 'ACTIVE' FOR UPDATE
+    `;
+    if (!user) return null;
+
+    const [challenge] = await tx<{
+      id: string;
+      user_id: string | null;
+      expires_at: Date;
+      consumed_at: Date | null;
+    }[]>`
+      SELECT id, user_id, expires_at, consumed_at
+      FROM auth_challenges
+      WHERE challenge_hash = ${digestSecret(verifiedChallengeId)} AND purpose = 'password_change_verified'
+      FOR UPDATE
+    `;
+    if (!challenge
+      || challenge.user_id !== userId
+      || challenge.consumed_at
+      || challenge.expires_at.getTime() <= Date.now()) {
       return null;
     }
 

@@ -32,6 +32,22 @@
 .brand svg { font-size: 21px; }
 .backLink { color: var(--muted); font-size: 12px; font-weight: 500; }
 
+.headerNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.headerNavLink {
+  color: var(--pitch);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.headerNavLink:hover { color: var(--muted); }
+
 .content {
   width: min(100%, 760px);
   margin: 44px auto 0;
@@ -40,8 +56,8 @@
 .heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  flex-direction: column;
+  text-align: center;
 }
 
 .heading p {
@@ -56,10 +72,16 @@
   line-height: 1.05;
 }
 
-.heading > button {
+.signOutAction {
+  display: flex;
+  justify-content: center;
+  margin-top: 26px;
+}
+
+.signOutAction button {
   display: inline-flex;
-  min-width: 80px;
-  min-height: 38px;
+  min-width: 96px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   padding: 0 13px;
@@ -71,7 +93,7 @@
   cursor: pointer;
 }
 
-.heading > button:disabled { opacity: .65; cursor: wait; }
+.signOutAction button:disabled { opacity: .65; cursor: wait; }
 
 .accountSummary {
   display: grid;
@@ -125,8 +147,7 @@
   gap: 3px;
 }
 
-.balance > span,
-.balance small { color: var(--muted); font-size: 11px; }
+.balance > span { color: var(--muted); font-size: 11px; }
 .balance strong { color: var(--pitch); font-size: 25px; font-variant-numeric: tabular-nums; }
 
 .shortcuts {
@@ -245,8 +266,16 @@
   font-size: 14px;
 }
 
+.settingsForm input:disabled {
+  background: #f3f5f3;
+  color: #626d65;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
 .settingsForm input:focus-visible,
 .settingsSection button:focus-visible,
+.passwordDialog button:focus-visible,
 .heading > button:focus-visible,
 .shortcut:focus-visible {
   outline: 2px solid var(--pitch);
@@ -275,6 +304,8 @@
 .primaryButton:disabled,
 .sessionList button:disabled { opacity: .65; cursor: wait; }
 
+.settingsForm button:disabled { cursor: not-allowed; }
+
 .primaryButton { margin-top: 16px; }
 
 .formActions {
@@ -288,6 +319,98 @@
   background: transparent;
   color: var(--muted);
 }
+
+.phoneVerification {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settingsForm .phoneVerification button {
+  min-height: 30px;
+  padding-inline: 0;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.passwordDialog {
+  width: min(100% - 32px, 460px);
+  max-width: 460px;
+  max-height: min(90vh, 640px);
+  margin: auto;
+  padding: 22px;
+  border: 1px solid #d2dbd4;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--ink);
+}
+
+.passwordDialog::backdrop { background: rgb(12 26 18 / 48%); }
+
+.passwordDialogHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.passwordDialogHeader h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.dialogClose {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.dialogContent,
+.passwordDialog .settingsForm { margin-top: 19px; }
+
+.dialogContent > p,
+.dialogCopy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.dialogContent .primaryButton { margin-top: 18px; }
+
+.dialogAvailability {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.resendAction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.resendAction > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.passwordDialog .error { margin-top: 14px; }
 
 .sessionList {
   display: grid;
@@ -371,13 +494,22 @@
     margin-top: 10px;
     padding: 8px 12px;
   }
+  .headerNav { gap: 12px; }
+  .headerNavLink { font-size: 12px; }
   .content { margin-top: 30px; }
   .heading h1 { font-size: 27px; }
-  .accountSummary { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 17px; }
-  .balance { justify-items: start; padding-left: 58px; }
-  .balance strong { font-size: 22px; }
+  .accountSummary { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 14px; }
+  .identity { gap: 9px; }
+  .avatar { width: 34px; height: 34px; font-size: 14px; }
+  .identity h2 { font-size: 13px; }
+  .identity p { font-size: 10px; }
+  .balance { min-width: 88px; justify-items: end; text-align: right; }
+  .balance > span { font-size: 10px; }
+  .balance strong { font-size: 18px; }
   .shortcut { min-height: 70px; gap: 11px; padding-inline: 11px; }
   .settingsSection { padding: 16px; }
+  .passwordDialog { padding: 18px; }
+  .formActions { flex-wrap: wrap; row-gap: 8px; }
   .sessionList li { align-items: flex-start; }
   .sessionList li > div { min-width: 0; }
   .transactionTable th,
