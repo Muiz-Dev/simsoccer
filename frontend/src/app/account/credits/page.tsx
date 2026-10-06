@@ -657,7 +657,7 @@ export default function CreditPurchasePage() {
                     ) : (
                       <AccountBalanceWalletIcon className={styles.walletIconFallback} aria-hidden="true" />
                     )}
-                    <span>{choice.name}</span>
+                    <span className={styles.walletName}>{choice.name}</span>
                   </button>
                 ))}
               </div>
