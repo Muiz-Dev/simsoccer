@@ -2,8 +2,8 @@
 
 - **Snapshot date:** 2026-10-06
 - **Repository:** `SimCore-Labs/simsoccer`
-- **Backend release deployed:** `28e97cf`
-- **EC2 checkout revision checked:** `28e97cf`
+- **Backend release deployed:** `599c7a8`
+- **EC2 checkout revision checked:** `599c7a8`
 
 This is an operational snapshot of the project and its production environment.
 It supplements [DEPLOYMENT-HANDOFF.md](./DEPLOYMENT-HANDOFF.md), which contains
@@ -334,6 +334,25 @@ which includes the Accounts API recovery fix from `d7a308d`.
 - The credit checkout now uses a concise package-first flow, and the auth
   screen no longer renders its extra header. Vercel deployment revision still
   needs independent confirmation.
+
+### Centered checkout, custom top-ups, and wallet detection — 2026-10-06
+
+- Backend release `599c7a8` was fast-forwarded onto EC2 after all three PM2
+  services were stopped. The backend build passed; no database migration was
+  needed. All three services restarted and PM2 state was saved.
+- The checkout supports preset credit packages and custom top-ups from 1,000
+  to 100,000 credits in steps of 10. The backend validates the amount and
+  calculates the matching USD/SOL quote using the existing package rate.
+- The checkout centers the package choices and Continue button, and discovers
+  installed devnet-compatible Wallet Standard wallets with legacy injected
+  wallet fallbacks.
+- Production reports payments enabled on devnet with a configured treasury.
+  The address is not recorded here. World and Accounts API readiness passed;
+  all three PM2 services are online; world status is `RUNNING`; `sudo nginx
+  -t` passed.
+- Frontend build and targeted backend payment tests passed locally. The
+  frontend deploys from `main` through Vercel; its exact deployed revision
+  could not be independently confirmed.
 
 ## My bets release verification — 2026-10-05
 
