@@ -773,7 +773,6 @@ export default function BettingDesk() {
 
       <div className={styles.titleBar}>
         <div>
-          <h1>Football</h1>
           <p className={styles.titleRound}>Round {round ?? "—"}</p>
         </div>
       </div>

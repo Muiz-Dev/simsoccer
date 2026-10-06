@@ -14,6 +14,11 @@ type WalletTransaction = {
   amount: string;
   balanceAfter: string;
   createdAt: string;
+  transactionSignature: string | null;
+  paymentNetwork: string | null;
+  payerAddress: string | null;
+  paymentUsdCents: number | null;
+  paymentLamports: string | null;
 };
 
 const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -27,6 +32,11 @@ const transactionLabels: Record<string, string> = {
   ADMIN_ADJUSTMENT: "Balance adjustment",
   SOLANA_PURCHASE_CREDIT: "SIM Credits purchase",
 };
+
+function formatSol(lamports: string): string {
+  const amount = Number(BigInt(lamports)) / 1_000_000_000;
+  return `${amount.toFixed(9).replace(/0+$/, "").replace(/\.$/, "")} SOL`;
+}
 
 export default function TransactionHistoryPage() {
   const router = useRouter();
@@ -79,7 +89,7 @@ export default function TransactionHistoryPage() {
         {!loading && transactions.length > 0 ? (
           <div className={styles.tableScroll}>
             <table className={styles.transactionTable}>
-              <thead><tr><th scope="col">Date</th><th scope="col">Activity</th><th scope="col">Change</th><th scope="col">Balance (credits)</th></tr></thead>
+              <thead><tr><th scope="col">Date</th><th scope="col">Activity</th><th scope="col">Change</th><th scope="col">Balance (credits)</th><th scope="col">On-chain</th></tr></thead>
               <tbody>
                 {transactions.map((transaction) => (
                   <tr key={transaction.id}>
@@ -87,6 +97,29 @@ export default function TransactionHistoryPage() {
                     <td>{transactionLabels[transaction.type] ?? "Wallet activity"}</td>
                     <td>{Number(transaction.amount) > 0 ? "+" : ""}{Number(transaction.amount).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} credits</td>
                     <td>{Number(transaction.balanceAfter).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td>
+                      {transaction.paymentLamports && transaction.paymentNetwork ? (
+                        <div className={styles.onChainDetails}>
+                          <span>{formatSol(transaction.paymentLamports)} · {transaction.paymentNetwork}</span>
+                          {transaction.paymentUsdCents !== null ? <small>${(transaction.paymentUsdCents / 100).toFixed(2)}</small> : null}
+                          {transaction.payerAddress ? (
+                            <small title={transaction.payerAddress}>
+                              Wallet {transaction.payerAddress.slice(0, 5)}…{transaction.payerAddress.slice(-5)}
+                            </small>
+                          ) : null}
+                          {transaction.transactionSignature ? (
+                            <a
+                              href={`https://explorer.solana.com/tx/${encodeURIComponent(transaction.transactionSignature)}?cluster=${encodeURIComponent(transaction.paymentNetwork)}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              title={transaction.transactionSignature}
+                            >
+                              {transaction.transactionSignature.slice(0, 6)}…{transaction.transactionSignature.slice(-6)}
+                            </a>
+                          ) : <small>Confirmation pending</small>}
+                        </div>
+                      ) : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

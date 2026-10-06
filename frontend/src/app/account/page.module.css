@@ -240,6 +240,22 @@
   font-size: 12px;
 }
 
+.paymentWalletDetails {
+  display: grid;
+  gap: 8px;
+  margin-top: 15px;
+}
+.paymentWalletDetails code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 12px;
+}
+.paymentWalletDetails span,
+.paymentWalletDetails small,
+.paymentWalletMessage { color: var(--muted); font-size: 11px; }
+.paymentWalletMessage { margin: 14px 0 0; }
+.paymentWalletError { margin: 14px 0 0; color: #85241f; font-size: 12px; }
+
 .settingsForm {
   display: grid;
   max-width: 460px;
@@ -474,6 +490,11 @@
 }
 
 .transactionTable td:nth-child(n + 3) { font-variant-numeric: tabular-nums; }
+
+.onChainDetails { display: grid; gap: 4px; }
+.onChainDetails span,
+.onChainDetails small { color: var(--muted); font-size: 10px; }
+.onChainDetails a { color: var(--pitch); font-size: 11px; text-underline-offset: 2px; }
 
 .buttonSpinner {
   width: 16px;

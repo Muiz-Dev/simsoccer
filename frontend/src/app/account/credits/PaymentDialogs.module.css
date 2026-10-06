@@ -1,0 +1,189 @@
+.dialog {
+  width: min(calc(100% - 32px), 430px);
+  max-height: min(90vh, 650px);
+  margin: auto;
+  padding: 22px;
+  border: 1px solid #d2dbd4;
+  background: var(--surface, #fff);
+  color: var(--ink);
+}
+
+.dialog::backdrop { background: rgb(19 34 25 / 50%); }
+
+.dialogHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dialogHeader h2,
+.successDialog h2 { margin: 0; font-size: 20px; }
+.dialogClose {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 25px;
+  cursor: pointer;
+}
+
+.amountSummary {
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+  margin-top: 20px;
+  padding: 16px;
+  background: #e9f0e9;
+}
+.amountSummary strong { color: var(--pitch); font-size: 27px; line-height: 1; }
+.amountSummary span { color: var(--muted); font-size: 12px; }
+
+.paymentDetails { margin: 15px 0 0; }
+.paymentDetails > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e8ede9;
+}
+.paymentDetails dt { color: var(--muted); font-size: 12px; }
+.paymentDetails dd { margin: 0; font-size: 13px; font-weight: 600; }
+.solAmount { display: inline-flex; align-items: center; gap: 7px; }
+.solanaMark { display: inline-block; width: 22px; height: 19px; object-fit: contain; }
+
+.connectedWallet,
+.successWallet {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid #e1e7e2;
+}
+.connectedWallet > span:nth-child(2) { display: grid; min-width: 0; gap: 3px; }
+.connectedWallet small { color: var(--muted); font-size: 10px; }
+.connectedWallet strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.connectedWallet code,
+.successWallet code { margin-left: auto; color: var(--muted); font-size: 10px; }
+
+.walletIconFrame {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 8px;
+  background: #f3f5f3;
+}
+.walletIcon { display: block; width: 100%; height: 100%; object-fit: contain; }
+.walletIconFallback { width: 21px; height: 21px; color: var(--muted); }
+
+.primaryButton {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 18px;
+  padding: 0 16px;
+  border: 0;
+  background: var(--pitch);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.primaryButton:disabled { cursor: wait; opacity: .6; }
+.primaryButton:focus-visible,
+.dialogClose:focus-visible,
+.cancelButton:focus-visible,
+.explorerLink:focus-visible { outline: 2px solid var(--pitch); outline-offset: 3px; }
+.dialogError {
+  margin: 13px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #a7322b;
+  background: #fff3f1;
+  color: #85241f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.dialogStatus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+.orderStatus { margin: 13px 0 0; color: var(--muted); font-size: 11px; text-align: center; }
+.spinner {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.explorerLink {
+  display: block;
+  width: fit-content;
+  margin: 15px auto 0;
+  color: var(--pitch);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cancelButton {
+  display: block;
+  min-height: 36px;
+  margin: 7px auto 0;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.cancelButton:disabled { cursor: wait; opacity: .55; }
+
+.successDialog { text-align: center; }
+.successIcon { width: 58px; height: 58px; margin: 4px auto 13px; color: #218454; }
+.successDialog h2 { text-align: center; }
+.successCopy { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.successAmount {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 13px;
+  background: #f1f5f1;
+}
+.successAmount strong { font-size: 16px; }
+.successAmount span { color: var(--muted); font-size: 12px; }
+.successWallet { text-align: left; }
+.successWallet > span:nth-child(2) { font-size: 12px; font-weight: 600; }
+.successDialog .primaryButton { margin-top: 20px; }
+
+@media (max-width: 480px) {
+  .dialog { padding: 18px; }
+  .connectedWallet code,
+  .successWallet code { font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.8s; }
+}

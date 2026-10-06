@@ -9,14 +9,14 @@ import {
   type SolanaSignAndSendTransactionFeature,
 } from "@solana/wallet-standard-features";
 import bs58 from "bs58";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import type { Transaction } from "@solana/web3.js";
 import { getAccessToken } from "@/lib/auth-client";
+import { PaymentReviewDialog, PaymentSuccessDialog } from "./PaymentDialogs";
+import WalletIcon from "./WalletIcon";
 import styles from "./page.module.css";
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -81,6 +81,7 @@ type ConnectedWallet = {
   id: string;
   name: string;
   address: string;
+  icon: string | null;
   signAndSendTransaction: (transaction: Transaction) => Promise<string>;
 };
 
@@ -132,6 +133,7 @@ function standardWalletChoice(wallet: StandardSolanaWallet): WalletChoice {
         id: `standard:${wallet.name}`,
         name: wallet.name,
         address: account.address,
+        icon: wallet.icon ?? null,
         signAndSendTransaction: async (transaction) => {
           const [result] = await signAndSend({
             account,
@@ -160,6 +162,7 @@ function legacyWalletChoice(id: string, name: string, provider: LegacySolanaProv
         id,
         name,
         address,
+        icon: typeof provider.icon === "string" && provider.icon.startsWith("data:image/") ? provider.icon : null,
         signAndSendTransaction: async (transaction) => {
           const { signature } = await provider.signAndSendTransaction(transaction, {
             preflightCommitment: "confirmed",
@@ -213,11 +216,6 @@ function formatCredits(value: number | string): string {
   return Number(value).toLocaleString("en-GB", { maximumFractionDigits: 0 });
 }
 
-function formatSol(lamports: string): string {
-  const amount = Number(BigInt(lamports)) / 1_000_000_000;
-  return `${amount.toFixed(9).replace(/0+$/, "").replace(/\.$/, "")} SOL`;
-}
-
 function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -240,13 +238,22 @@ export default function CreditPurchasePage() {
   const [walletChooserOpen, setWalletChooserOpen] = useState(false);
   const [connectingWalletId, setConnectingWalletId] = useState<string | null>(null);
   const [order, setOrder] = useState<PaymentOrder | null>(null);
+  const [paymentReviewOpen, setPaymentReviewOpen] = useState(false);
+  const [paymentSuccessOpen, setPaymentSuccessOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [secondsLeft, setSecondsLeft] = useState(0);
   const polling = useRef(false);
   const orderIdempotencyKey = useRef<string | null>(null);
+
+  const updateOrder = useCallback((updatedOrder: PaymentOrder) => {
+    setOrder(updatedOrder);
+    if (updatedOrder.status === "CREDITED") {
+      setPaymentReviewOpen(false);
+      setPaymentSuccessOpen(true);
+    }
+  }, []);
 
   useEffect(() => {
     const wallets = getWallets();
@@ -273,7 +280,7 @@ export default function CreditPurchasePage() {
         throw new Error(typeof payload.message === "string" ? payload.message : "Payment status is temporarily unavailable.");
       }
       if (payload.order && typeof payload.order === "object") {
-        setOrder(payload.order as PaymentOrder);
+        updateOrder(payload.order as PaymentOrder);
         setError("");
       }
     } catch (cause) {
@@ -281,7 +288,7 @@ export default function CreditPurchasePage() {
     } finally {
       polling.current = false;
     }
-  }, []);
+  }, [updateOrder]);
 
   useEffect(() => {
     let active = true;
@@ -344,12 +351,12 @@ export default function CreditPurchasePage() {
     setConnectingWalletId(choice.id);
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       const connected = await choice.connect();
       if (activeWallet && activeWallet.address !== connected.address) orderIdempotencyKey.current = null;
       setActiveWallet(connected);
       setOrder(null);
+      setPaymentReviewOpen(false);
       setWalletChooserOpen(false);
       return connected;
     } catch (cause) {
@@ -362,6 +369,10 @@ export default function CreditPurchasePage() {
   }
 
   async function continueCheckout() {
+    if (order && !terminal && !retryable) {
+      setPaymentReviewOpen(true);
+      return;
+    }
     if (activeWallet) {
       await createOrder(activeWallet.address);
     } else if (walletChoices.length === 0) {
@@ -377,7 +388,6 @@ export default function CreditPurchasePage() {
     if (selectedPackage === "custom" && !customCreditAmountValid) return;
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       const idempotencyKey = orderIdempotencyKey.current ?? crypto.randomUUID();
       orderIdempotencyKey.current = idempotencyKey;
@@ -401,7 +411,8 @@ export default function CreditPurchasePage() {
       if (!response.ok) throw new Error(typeof payload.message === "string" ? payload.message : "A payment quote could not be created.");
       if (!payload.order || typeof payload.order !== "object") throw new Error("The payment service returned an invalid quote.");
       orderIdempotencyKey.current = null;
-      setOrder(payload.order as PaymentOrder);
+      updateOrder(payload.order as PaymentOrder);
+      setPaymentReviewOpen(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "A payment quote could not be created.");
     } finally {
@@ -413,7 +424,6 @@ export default function CreditPurchasePage() {
     if (!order) return;
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       const token = await getAccessToken();
       if (!token) {
@@ -446,8 +456,7 @@ export default function CreditPurchasePage() {
       transaction.add(transfer);
 
       const signature = await activeWallet.signAndSendTransaction(transaction);
-      setOrder({ ...order, status: "SUBMITTED", transactionSignature: signature });
-      setNotice("Payment sent. Confirming…");
+      updateOrder({ ...order, status: "SUBMITTED", transactionSignature: signature });
 
       const response = await fetch(`${API_URL}/api/wallet/solana/orders/${order.id}/submit`, {
         method: "POST",
@@ -456,15 +465,12 @@ export default function CreditPurchasePage() {
         cache: "no-store",
       });
       const payload = await readJson(response);
-      if (payload.order && typeof payload.order === "object") setOrder(payload.order as PaymentOrder);
+      if (payload.order && typeof payload.order === "object") updateOrder(payload.order as PaymentOrder);
       if (!response.ok) {
         throw new Error(typeof payload.message === "string"
           ? payload.message
           : "Payment sent. Confirmation is taking longer than expected.");
       }
-      setNotice(payload.order && (payload.order as PaymentOrder).status === "CREDITED"
-        ? "Payment verified. SIM Credits have been added to your account."
-        : "Payment sent. We’ll update your balance when it’s confirmed.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The payment could not be completed.");
     } finally {
@@ -484,7 +490,10 @@ export default function CreditPurchasePage() {
   const customPriceCents = config?.customTopUp
     ? Math.round(customCreditAmountNumber * 100 / config.customTopUp.creditsPerUsd)
     : 0;
-  const terminal = order && ["CREDITED", "EXPIRED", "OVERPAID", "REQUIRES_REVIEW"].includes(order.status);
+  const terminal = order && (
+    ["CREDITED", "EXPIRED", "OVERPAID", "REQUIRES_REVIEW"].includes(order.status)
+    || (["FAILED", "UNDERPAID"].includes(order.status) && secondsLeft === 0)
+  );
   const retryable = order && ["FAILED", "UNDERPAID"].includes(order.status) && secondsLeft > 0;
 
   return (
@@ -505,8 +514,7 @@ export default function CreditPurchasePage() {
             <span>Loading…</span>
           </div>
         ) : null}
-        {error ? <p className={styles.error} role="alert">{error}</p> : null}
-        {notice ? <p className={styles.notice} role="status">{notice}</p> : null}
+        {error && !paymentReviewOpen ? <p className={styles.error} role="alert">{error}</p> : null}
 
         {!loading && config && !config.enabled ? (
           <section className={styles.unavailable} aria-label="Payments unavailable">
@@ -590,46 +598,16 @@ export default function CreditPurchasePage() {
                   {busy ? "Please wait…" : retryable ? "Try again" : "Continue"}
                 </button>
               ) : null}
+              {order && !terminal && !retryable ? (
+                <button
+                  className={styles.secondaryButton}
+                  type="button"
+                  onClick={() => setPaymentReviewOpen(true)}
+                >
+                  {order.status === "PENDING" ? "Review payment" : "View payment status"}
+                </button>
+              ) : null}
             </section>
-
-            {order ? (
-              <section className={styles.orderPanel} aria-labelledby="order-title">
-                <div className={styles.panelHeading}>
-                  <div>
-                    <h2 id="order-title">Payment</h2>
-                    <p className={`${styles.status} ${styles[`status${order.status}`] ?? ""}`}>{statusText[order.status] ?? "Payment pending"}</p>
-                  </div>
-                </div>
-                <dl className={styles.quote}>
-                  <div><dt>You receive</dt><dd>{formatCredits(order.creditAmount)} SIM Credits</dd></div>
-                  <div><dt>Amount</dt><dd>{formatSol(order.expectedLamports)}</dd></div>
-                  <div><dt>Price</dt><dd>{formatUsd(order.usdCents)}</dd></div>
-                </dl>
-
-                {order.reviewReason ? <p className={styles.reviewReason}>{order.reviewReason}</p> : null}
-                {order.transactionSignature ? (
-                  <a className={styles.explorerLink} href={`https://explorer.solana.com/tx/${encodeURIComponent(order.transactionSignature)}?cluster=devnet`} target="_blank" rel="noreferrer">
-                    View transaction on Solana Explorer
-                  </a>
-                ) : null}
-
-                {order.status === "PENDING" && secondsLeft > 0 ? (
-                  <button className={styles.primaryButton} type="button" onClick={() => void payWithWallet()} disabled={busy}>
-                    {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
-                    {busy ? "Waiting for wallet…" : `Pay ${formatSol(order.expectedLamports)} with ${activeWallet?.name ?? "wallet"}`}
-                  </button>
-                ) : null}
-                {retryable ? (
-                  <p className={styles.retryNote}>Payment didn’t complete. Try again.</p>
-                ) : null}
-                {order.status === "CREDITED" ? (
-                  <p className={styles.success}>SIM Credits added.</p>
-                ) : null}
-                {order.status === "EXPIRED" ? (
-                  <p className={styles.retryNote}>This quote expired. Get a new one to continue.</p>
-                ) : null}
-              </section>
-            ) : null}
           </div>
         ) : null}
 
@@ -650,13 +628,7 @@ export default function CreditPurchasePage() {
                     })()}
                   >
                     {connectingWalletId === choice.id ? <span className={styles.spinner} aria-hidden="true" /> : null}
-                    {choice.icon ? (
-                      <span className={styles.walletIconFrame}>
-                        <Image className={styles.walletIcon} src={choice.icon} alt="" width={28} height={28} unoptimized />
-                      </span>
-                    ) : (
-                      <AccountBalanceWalletIcon className={styles.walletIconFallback} aria-hidden="true" />
-                    )}
+                    <WalletIcon icon={choice.icon} size={28} />
                     <span className={styles.walletName}>{choice.name}</span>
                   </button>
                 ))}
@@ -667,6 +639,25 @@ export default function CreditPurchasePage() {
             </section>
           </div>
         ) : null}
+        <PaymentReviewDialog
+          open={paymentReviewOpen}
+          order={order ? {
+            ...order,
+            statusLabel: statusText[order.status] ?? "Payment pending",
+          } : null}
+          wallet={activeWallet}
+          busy={busy}
+          error={error}
+          secondsLeft={secondsLeft}
+          onPay={() => void payWithWallet()}
+          onClose={() => setPaymentReviewOpen(false)}
+        />
+        <PaymentSuccessDialog
+          open={paymentSuccessOpen}
+          order={order}
+          wallet={activeWallet}
+          onClose={() => setPaymentSuccessOpen(false)}
+        />
       </section>
     </main>
   );

@@ -10,7 +10,7 @@ import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import SearchIcon from "@mui/icons-material/Search";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import AuthAction from "@/components/AuthAction";
-import { restoreAccessToken } from "@/lib/auth-client";
+import { restoreAccessToken, subscribeAuth } from "@/lib/auth-client";
 import styles from "./BetsPage.module.css";
 
 type TicketSelection = {
@@ -200,6 +200,26 @@ export default function BetsPage() {
   const [lookupError, setLookupError] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAuth((authenticated) => {
+      setSignedIn(authenticated);
+      if (!authenticated) {
+        historyRequestId.current += 1;
+        ticketHistoryPages.current = 1;
+        setWalletBalance(null);
+        setWalletBalanceUnavailable(false);
+        setTickets([]);
+        setOpenTicketCount(0);
+        setTicketCount(0);
+        setHasMoreTickets(false);
+        setHistoryError("");
+        setLoadingHistory(false);
+        setLoadingMore(false);
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -440,7 +460,6 @@ export default function BetsPage() {
             <div className={styles.lookupHeading}>
               <div>
                 <h2 id="lookup-title">Look up a ticket</h2>
-                <p>Use the code from your accepted ticket.</p>
               </div>
               <SearchIcon aria-hidden="true" />
             </div>
@@ -522,8 +541,6 @@ export default function BetsPage() {
               </button>
             ) : null}
           </section>
-        ) : signedIn === false ? (
-          <p className={styles.signInNote}>Sign in to see all of your tickets here.</p>
         ) : null}
       </div>
     </main>

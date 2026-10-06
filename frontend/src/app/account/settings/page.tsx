@@ -21,7 +21,14 @@ type AccountSession = {
   current: boolean;
   deviceRecognized: boolean;
 };
+type LastPaymentWallet = {
+  address: string;
+  network: string;
+  connectedAt: string;
+};
 type PasswordStep = "request" | "code" | "password";
+
+const apiUrl = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 export default function AccountSettingsPage() {
   const router = useRouter();
@@ -29,6 +36,9 @@ export default function AccountSettingsPage() {
   const actionInFlight = useRef(false);
   const [account, setAccount] = useState<Account | null>(null);
   const [sessions, setSessions] = useState<AccountSession[]>([]);
+  const [lastPaymentWallet, setLastPaymentWallet] = useState<LastPaymentWallet | null>(null);
+  const [walletLoading, setWalletLoading] = useState(true);
+  const [walletError, setWalletError] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -96,6 +106,35 @@ export default function AccountSettingsPage() {
     })();
     return () => { active = false; };
   }, [router]);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const token = await restoreAccessToken();
+        if (!token) return;
+        if (!apiUrl) throw new Error("Wallet details are temporarily unavailable.");
+        const response = await fetch(`${apiUrl}/api/wallet/solana/wallet`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload || (payload.wallet !== null && (
+          typeof payload.wallet?.address !== "string"
+          || typeof payload.wallet?.network !== "string"
+          || typeof payload.wallet?.connectedAt !== "string"
+        ))) {
+          throw new Error(payload?.message ?? "Wallet details are temporarily unavailable.");
+        }
+        if (active) setLastPaymentWallet(payload.wallet as LastPaymentWallet | null);
+      } catch (cause) {
+        if (active) setWalletError(cause instanceof Error ? cause.message : "Wallet details are temporarily unavailable.");
+      } finally {
+        if (active) setWalletLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const dialog = passwordDialogRef.current;
@@ -274,6 +313,24 @@ export default function AccountSettingsPage() {
                 </div>
                 <button type="submit" disabled>Save details</button>
               </form>
+            </section>
+
+            <section className={styles.settingsSection} aria-labelledby="payment-wallet-title">
+              <div className={styles.sectionHeading}>
+                <h2 id="payment-wallet-title">Last used wallet</h2>
+              </div>
+              {walletLoading ? <p className={styles.paymentWalletMessage} role="status">Loading…</p> : null}
+              {walletError ? <p className={styles.paymentWalletError} role="alert">{walletError}</p> : null}
+              {!walletLoading && !walletError && lastPaymentWallet ? (
+                <div className={styles.paymentWalletDetails}>
+                  <code>{lastPaymentWallet.address}</code>
+                  <span>Solana {lastPaymentWallet.network}</span>
+                  <small>Last used {new Date(lastPaymentWallet.connectedAt).toLocaleString()}</small>
+                </div>
+              ) : null}
+              {!walletLoading && !walletError && !lastPaymentWallet ? (
+                <p className={styles.paymentWalletMessage}>No wallet used for a credit purchase yet.</p>
+              ) : null}
             </section>
 
             <section className={styles.settingsSection} aria-labelledby="password-title">

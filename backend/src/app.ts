@@ -1333,6 +1333,18 @@ export function createApp() {
     }
   });
 
+  app.get('/api/wallet/solana/wallet', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
+    const [latestOrder] = await db.select({
+      address: solanaPaymentOrders.payerAddress,
+      network: solanaPaymentOrders.network,
+      connectedAt: solanaPaymentOrders.createdAt,
+    }).from(solanaPaymentOrders)
+      .where(eq(solanaPaymentOrders.userId, req.user!.id))
+      .orderBy(desc(solanaPaymentOrders.createdAt))
+      .limit(1);
+    return res.json({ wallet: latestOrder ?? null });
+  });
+
   // 6. Wallet API
   app.get('/api/wallet', authenticateJwt, requireLocalAccount, async (req: AuthenticatedRequest, res: Response) => {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.userId, req.user!.id));
@@ -1344,7 +1356,30 @@ export function createApp() {
     const [wallet] = await db.select().from(wallets).where(eq(wallets.userId, req.user!.id));
     if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
 
-    const txs = await db.select().from(walletTransactions).where(eq(walletTransactions.walletId, wallet.id));
+    const txs = await db.select({
+      id: walletTransactions.id,
+      walletId: walletTransactions.walletId,
+      type: walletTransactions.type,
+      amount: walletTransactions.amount,
+      balanceBefore: walletTransactions.balanceBefore,
+      balanceAfter: walletTransactions.balanceAfter,
+      referenceType: walletTransactions.referenceType,
+      referenceId: walletTransactions.referenceId,
+      idempotencyKey: walletTransactions.idempotencyKey,
+      createdAt: walletTransactions.createdAt,
+      transactionSignature: solanaPaymentOrders.transactionSignature,
+      paymentNetwork: solanaPaymentOrders.network,
+      payerAddress: solanaPaymentOrders.payerAddress,
+      paymentUsdCents: solanaPaymentOrders.usdCents,
+      paymentLamports: solanaPaymentOrders.expectedLamports,
+    }).from(walletTransactions)
+      .leftJoin(solanaPaymentOrders, and(
+        eq(walletTransactions.referenceType, 'SOLANA_PAYMENT'),
+        eq(walletTransactions.referenceId, solanaPaymentOrders.id),
+        eq(solanaPaymentOrders.userId, req.user!.id),
+      ))
+      .where(eq(walletTransactions.walletId, wallet.id))
+      .orderBy(desc(walletTransactions.createdAt));
     res.json(txs);
   });
 

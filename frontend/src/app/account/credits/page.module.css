@@ -41,8 +41,7 @@
 .heading h1 { margin: 0; font-size: 32px; line-height: 1.1; }
 
 .checkout { display: grid; gap: 12px; margin-top: 28px; }
-.packagePanel,
-.orderPanel { padding: 20px; background: var(--surface, #fff); }
+.packagePanel { padding: 20px; background: var(--surface, #fff); }
 
 .panelHeading { display: flex; align-items: flex-start; justify-content: center; gap: 12px; text-align: center; }
 .panelHeading h2 { margin: 0; font-size: 16px; }
@@ -127,10 +126,8 @@
 .customAmount p { min-height: 18px; margin: 0; color: var(--pitch); font-size: 12px; }
 .customAmount input[aria-invalid="true"] { color: #85241f; }
 
-.packagePanel > .primaryButton,
-.orderPanel > .primaryButton { margin-top: 16px; }
-.packagePanel > .primaryButton,
-.orderPanel > .primaryButton { display: flex; width: fit-content; min-width: 150px; margin-inline: auto; }
+.packagePanel > .primaryButton { display: flex; width: fit-content; min-width: 150px; margin: 16px auto 0; }
+.packagePanel > .secondaryButton { display: flex; width: fit-content; min-width: 150px; margin: 16px auto 0; }
 
 .walletOverlay {
   position: fixed;
@@ -166,32 +163,12 @@
   cursor: pointer;
 }
 .walletChoice { justify-content: flex-start; }
-.walletIconFrame { display: grid; width: 28px; height: 28px; flex: 0 0 28px; overflow: hidden; place-items: center; border-radius: 7px; }
-.walletIcon { display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; }
-.walletIconFallback { width: 24px; height: 24px; flex: 0 0 24px; }
 .walletName { flex: 1; text-align: left; }
 .walletChoice:disabled,
 .closeWalletDialog:disabled { cursor: wait; opacity: .6; }
 .walletChoice:focus-visible,
 .closeWalletDialog:focus-visible { outline: 2px solid var(--pitch); outline-offset: 3px; }
 .closeWalletDialog { min-height: 38px; margin: 10px auto 0; border: 0; font-weight: 500; }
-
-.orderPanel .status { display: inline-flex; align-items: center; color: var(--pitch); font-weight: 600; }
-.quote {
-  display: grid;
-  gap: 0;
-  margin: 16px 0 0;
-  border-top: 1px solid #e8ede9;
-}
-
-.quote > div { display: flex; justify-content: space-between; gap: 18px; padding: 10px 0; border-bottom: 1px solid #e8ede9; }
-.quote dt { color: var(--muted); font-size: 12px; }
-.quote dd { margin: 0; color: var(--ink); font-size: 12px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
-.reviewReason,
-.retryNote,
-.success { margin: 14px 0 0; color: #85241f; font-size: 12px; line-height: 1.5; }
-.success { color: var(--pitch); }
-.explorerLink { display: inline-block; margin: 13px 0 0; color: var(--pitch); font-size: 12px; text-underline-offset: 3px; }
 
 .unavailable {
   margin-top: 18px;
@@ -231,8 +208,7 @@
   .header { min-height: 58px; margin-top: 8px; padding: 10px 13px; }
   .content { margin-top: 32px; }
   .heading h1 { font-size: 27px; }
-  .packagePanel,
-  .orderPanel { padding: 16px 13px; }
+  .packagePanel { padding: 16px 13px; }
   .packageList { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .packageOption:last-child:nth-child(odd) { grid-column: 1 / -1; width: calc(50% - 5px); justify-self: center; }
 }
