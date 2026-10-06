@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -51,6 +51,7 @@ export default function AuthFlow() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const verificationInFlight = useRef(false);
 
   function clearFeedback() {
     setError('');
@@ -64,7 +65,7 @@ export default function AuthFlow() {
     setStage(next);
   }
 
-  async function continueWithSession(accessToken: string, account?: Account) {
+  async function continueWithSession(accessToken: string, account?: Account): Promise<boolean> {
     setAccessToken(accessToken);
     let currentAccount = account;
     if (!currentAccount) {
@@ -76,9 +77,10 @@ export default function AuthFlow() {
     }
     if (currentAccount.profileComplete) {
       router.push(getReturnPath());
-      return;
+      return true;
     }
     setStage('profile');
+    return false;
   }
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
@@ -165,20 +167,26 @@ export default function AuthFlow() {
 
   async function handleCodeVerification(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (verificationInFlight.current) return;
     clearFeedback();
     if (!/^\d{8}$/.test(code)) {
       setError('Enter the eight-digit code from the email.');
       return;
     }
+    verificationInFlight.current = true;
     setBusy(true);
     try {
       const result = await requestAuth('verify', { challengeId, code });
       if (!result.accessToken) throw new Error('The code could not be verified. Request a new one.');
-      await continueWithSession(result.accessToken, result.account);
+      const redirecting = await continueWithSession(result.accessToken, result.account);
+      if (!redirecting) {
+        verificationInFlight.current = false;
+        setBusy(false);
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The code could not be verified. Try again.');
-    } finally {
+      verificationInFlight.current = false;
       setBusy(false);
+      setError(cause instanceof Error ? cause.message : 'The code could not be verified. Try again.');
     }
   }
 
@@ -306,7 +314,7 @@ export default function AuthFlow() {
         ) : null}
 
         {codeStage ? (
-          <form className={styles.form} onSubmit={(event) => void handleCodeVerification(event)}>
+          <form className={styles.form} onSubmit={(event) => void handleCodeVerification(event)} aria-busy={busy}>
             <label className={styles.codeField}>
               Verification code
               <input
@@ -318,11 +326,12 @@ export default function AuthFlow() {
                 value={code}
                 onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 8))}
                 required
+                disabled={busy}
               />
             </label>
             <button className={styles.primary} type="submit" disabled={busy || !challengeId || !/^\d{8}$/.test(code)}>{busy ? <span className={styles.spinner} aria-hidden="true" /> : null}{busy ? 'Checking code' : 'Verify code'}</button>
             <button className={styles.textAction} type="button" disabled={busy} onClick={() => void resendCode()}>Send a new code</button>
-            <button className={styles.backAction} type="button" onClick={() => moveTo(emailEntryStage)}>Use a different email</button>
+            <button className={styles.backAction} type="button" disabled={busy} onClick={() => moveTo(emailEntryStage)}>Use a different email</button>
           </form>
         ) : null}
 

@@ -7,9 +7,9 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
-import WalletIcon from "@mui/icons-material/Wallet";
 import { useRouter } from "next/navigation";
 import AuthAction from "@/components/AuthAction";
+import OpenBetsLink, { notifyOpenBetsUpdated } from "@/components/OpenBetsLink";
 import { getAccessToken, subscribeAuth } from "@/lib/auth-client";
 import { formatLocalDateTime, formatLocalTime, useBrowserTimeZone } from "@/lib/time-zone";
 import styles from "./BettingDesk.module.css";
@@ -515,6 +515,7 @@ export default function BettingDesk() {
       ticketCode.current = null;
       setAcceptedBet(accepted);
       setWalletRefresh((current) => current + 1);
+      notifyOpenBetsUpdated();
       setSelections([]);
       setStake("");
       setSavedCode("");
@@ -739,23 +740,22 @@ export default function BettingDesk() {
           <span>SimSoccer</span>
         </Link>
         <div className={styles.headerLinks}>
-          <Link href="/">Match centre</Link>
-          <Link href="/bets">My bets</Link>
-          <AuthAction />
+          <OpenBetsLink />
           {signedIn ? (
-            <span
-              className={styles.walletBalance}
-              aria-label={walletBalanceUnavailable
-                ? "Credit balance unavailable"
-                : `Credit balance ${walletBalance === null ? "loading" : `${formatCreditBalance(walletBalance)} credits`}`}
-              title="Play-money credit balance"
-              aria-live="polite"
-            >
-              <WalletIcon aria-hidden="true" />
-              <span>{walletBalanceUnavailable ? "Unavailable" : walletBalance === null ? "Loading…" : formatCreditBalance(walletBalance)}</span>
-              {!walletBalanceUnavailable && walletBalance !== null ? <small>credits</small> : null}
-            </span>
-          ) : null}
+            <div className={styles.accountBalance}>
+              <AuthAction />
+              <span
+                className={styles.walletBalance}
+                aria-label={walletBalanceUnavailable
+                  ? "Credit balance unavailable"
+                  : `Credit balance ${walletBalance === null ? "loading" : `${formatCreditBalance(walletBalance)} credits`}`}
+                title="Play-money credit balance"
+                aria-live="polite"
+              >
+                {walletBalanceUnavailable ? "Unavailable" : walletBalance === null ? "Loading…" : formatCreditBalance(walletBalance)}
+              </span>
+            </div>
+          ) : <AuthAction />}
         </div>
       </header>
 
@@ -977,34 +977,38 @@ export default function BettingDesk() {
                 {hasChangedPrice ? (
                   <button className={styles.secondaryAction} type="button" onClick={acceptCurrentPrices}>Accept current prices</button>
                 ) : null}
-                <button className={styles.primaryAction} type="button" disabled={!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice} onClick={() => void saveBooking()}>
-                  Book
-                </button>
                 {signedIn ? (
                   <>
-                    <label className={styles.stakeField}>
-                      Stake
-                      <span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="0.00" /><small>credits</small></span>
-                    </label>
+                    <div className={styles.stakeActionRow}>
+                      <label className={styles.stakeField}>
+                        Stake
+                        <span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="0.00" /><small>credits</small></span>
+                      </label>
+                      <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()} aria-busy={placingBet}>
+                        {placingBet ? (
+                          <span className={styles.placeBetProgress}>
+                            <span className={styles.placeBetSpinner} aria-hidden="true" />
+                            Placing bet
+                          </span>
+                        ) : "Place bet"}
+                      </button>
+                    </div>
                     <div className={styles.oddsSummary}>
                       <span>Potential return</span>
                       <strong>{potentialReturn}</strong>
                     </div>
-                    <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()} aria-busy={placingBet}>
-                      {placingBet ? (
-                        <span className={styles.placeBetProgress}>
-                          <span className={styles.placeBetSpinner} aria-hidden="true" />
-                          Placing bet
-                        </span>
-                      ) : "Place bet"}
-                    </button>
                   </>
                 ) : (
                   <>
                     {signedIn === false ? (
-                      <Link className={styles.placeBetAction} href="/auth?next=/betting">
-                        Sign in to place a bet
-                      </Link>
+                      <>
+                        <button className={styles.primaryAction} type="button" disabled={!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice} onClick={() => void saveBooking()}>
+                          Book
+                        </button>
+                        <Link className={styles.placeBetAction} href="/auth?next=/betting">
+                          Sign in to place a bet
+                        </Link>
+                      </>
                     ) : null}
                   </>
                 )}

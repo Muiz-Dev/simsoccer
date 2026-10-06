@@ -6,14 +6,19 @@
 }
 
 .header {
-  min-height: 58px;
+  min-height: 68px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-top: 14px;
+  padding: 12px 20px;
+  border: 1px solid #d2dbd4;
+  border-radius: 8px;
+  background: var(--surface, #fff);
 }
 
 .brand,
-.worldStatus {
+.headerActions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -27,20 +32,60 @@
   font-size: 20px;
 }
 
-.worldStatus {
-  gap: 6px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
+.headerActions {
+  gap: 22px;
 }
 
-.worldStatus > svg {
+.accountBalance {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 9px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid #c6d2c9;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.accountBalance > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--pitch);
-  font-size: 17px;
+  line-height: 1;
 }
 
-.refresh {
-  color: var(--ink) !important;
+.accountBalance > a > svg {
+  display: block;
+  font-size: 20px;
+}
+
+.balanceAmount {
+  color: var(--pitch);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.openBetsLink {
+  gap: 6px;
+  color: var(--pitch);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.openBetsLink:hover {
+  color: var(--pitch);
+}
+
+.openBetsLink > span:first-of-type {
+  color: inherit;
 }
 
 .error,
@@ -123,28 +168,67 @@
 }
 
 .competitionNav {
+  width: fit-content;
+  max-width: 100%;
   margin-top: 5px;
+  padding: 4px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: #e8ebe8;
 }
 
 .competitionNav :global(.MuiTabs-root) {
-  min-height: 44px;
+  min-height: 46px;
 }
 
 .competitionNav :global(.MuiTabs-indicator) {
-  height: 2px;
-  background: var(--pitch);
+  display: none;
+}
+
+.competitionNav :global(.MuiTabs-flexContainer) {
+  gap: 4px;
 }
 
 .competitionNav :global(.MuiTab-root) {
   min-width: 0;
+  min-height: 46px;
   padding: 0 17px;
+  border-radius: 5px;
+  background: transparent;
   color: var(--muted);
   font-family: inherit;
   font-size: 13px;
+  font-weight: 600;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.competitionNav :global(.MuiTab-root:hover) {
+  background: rgb(255 255 255 / 65%);
 }
 
 .competitionNav :global(.Mui-selected) {
-  color: var(--pitch) !important;
+  background: var(--pitch);
+  color: #fff !important;
+}
+
+.competitionNav :global(.MuiTab-root.Mui-selected:hover) {
+  background: var(--pitch);
+}
+
+.competitionTabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.competitionTabLabel img,
+.competitionTabLabel > svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  object-fit: contain;
 }
 
 .connectionError {
@@ -728,6 +812,35 @@ outline-offset: -2px;
   @media (max-width: 600px) {
     .page {
       width: min(100% - 28px, 560px);
+    }
+
+    .header {
+      min-height: 58px;
+      margin-top: 10px;
+      padding: 8px 12px;
+    }
+
+    .headerActions {
+      gap: 12px;
+    }
+
+    .accountBalance {
+      gap: 6px;
+      min-height: 36px;
+      padding: 4px 9px;
+    }
+
+    .accountBalance > a > svg {
+      font-size: 18px;
+    }
+
+    .balanceAmount {
+      font-size: 12px;
+    }
+
+    .openBetsLink {
+      gap: 5px;
+      font-size: 13px;
     }
 
     .primaryNav {

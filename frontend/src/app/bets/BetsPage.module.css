@@ -7,11 +7,14 @@
 .header {
   display: flex;
   width: min(100% - 40px, 1120px);
-  min-height: 62px;
+  min-height: 68px;
   align-items: center;
   justify-content: space-between;
-  margin-inline: auto;
-  border-bottom: 1px solid var(--rule);
+  margin: 14px auto 0;
+  padding: 12px 20px;
+  border: 1px solid #d2dbd4;
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .brand,
@@ -30,16 +33,66 @@
 
 .brand svg { font-size: 21px; }
 
-.header nav { gap: 22px; }
-.header nav a,
+.header nav {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.header nav > a,
 .historyHeading > a {
   color: var(--muted);
   font-size: 13px;
   text-decoration: none;
 }
 
-.header nav a:hover,
+.header nav > a:hover,
 .historyHeading > a:hover { color: var(--pitch); }
+
+.accountBalance {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 9px;
+  border: 1px solid #c6d2c9;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.accountBalance > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pitch);
+  line-height: 1;
+}
+
+.accountBalance > a > svg {
+  display: block;
+  font-size: 20px;
+}
+
+.balanceAmount {
+  color: var(--pitch);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.openBetsLink {
+  gap: 4px;
+  color: var(--pitch);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.openBetsLink:hover { color: var(--pitch) !important; }
 
 .content {
   width: min(100% - 40px, 820px);
@@ -47,20 +100,9 @@
   padding-bottom: 56px;
 }
 
-.backLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--muted);
-  font-size: 12px;
-  text-decoration: none;
-}
-
-.backLink:hover { color: var(--pitch); }
-.backLink svg { font-size: 17px; }
-
 .title {
   padding: 18px 0 22px;
+  text-align: center;
 }
 
 .title h1 {
@@ -158,51 +200,51 @@
 }
 
 .tabs {
-  display: flex;
-  gap: 6px;
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
   margin: 14px 0;
-  border-bottom: 1px solid var(--rule);
+  padding: 4px;
+  border-radius: 5px;
+  background: #e8ebe8;
 }
 
 .tabs button {
-  position: relative;
-  min-height: 38px;
-  padding: 0 14px;
+  display: inline-flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 16px;
+  border-radius: 4px;
   background: transparent;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .tabs button[aria-selected="true"] {
-  color: var(--pitch);
-}
-
-.tabs button[aria-selected="true"]::after {
-  position: absolute;
-  right: 0;
-  bottom: -1px;
-  left: 0;
-  height: 2px;
   background: var(--pitch);
-  content: "";
+  color: #fff;
 }
 
 .tabCount {
   display: inline-grid;
   min-width: 20px;
   height: 20px;
-  margin-left: 5px;
   padding-inline: 5px;
   place-items: center;
   border-radius: 10px;
-  background: #e9ede9;
-  color: var(--ink);
+  background: #dce4de;
+  color: var(--pitch);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 
 .tabs button[aria-selected="true"] .tabCount {
-  background: var(--pitch);
+  background: rgb(255 255 255 / 20%);
   color: #fff;
 }
 
@@ -261,6 +303,46 @@
 .statusLOST { border-color: #c6817b; color: #9a302a; }
 .statusVOID,
 .statusCANCELLED { border-color: #9ba49d; color: #59635b; }
+
+.selectionToggle {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 1px solid #e9ede9;
+  background: #fff;
+  color: var(--pitch);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.selectionToggle:hover {
+  background: #f7f9f7;
+}
+
+.selectionToggle:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--pitch);
+  outline-offset: -2px;
+}
+
+.selectionToggle svg {
+  flex: 0 0 auto;
+  font-size: 19px;
+  transition: transform 160ms ease;
+}
+
+.selectionToggleExpanded {
+  transform: rotate(180deg);
+}
 
 .legs {
   display: grid;
@@ -354,14 +436,14 @@
 
 .legStatus {
   display: inline-flex;
-  min-width: 32px;
-  min-height: 28px;
+  width: 24px;
+  min-height: 24px;
   align-items: center;
-  justify-content: flex-end;
-  text-align: right;
+  justify-content: center;
+  text-align: center;
 }
 
-.legStatus svg { font-size: 22px; }
+.legStatus svg { display: block; font-size: 16px; }
 .legWon { color: #197544; }
 .legLost { color: #b53630; }
 
@@ -485,8 +567,21 @@
 @keyframes skeletonPulse { 50% { opacity: .5; } }
 
 @media (max-width: 600px) {
-  .header { width: min(100% - 28px, 560px); }
-  .header nav { gap: 13px; font-size: 12px; }
+  .header {
+    width: min(100% - 28px, 560px);
+    min-height: 58px;
+    margin-top: 10px;
+    padding: 8px 12px;
+  }
+  .accountBalance {
+    gap: 6px;
+    min-height: 32px;
+    padding: 3px 7px;
+  }
+  .header nav { gap: 12px; }
+  .accountBalance > a > svg { font-size: 18px; }
+  .balanceAmount { font-size: 10px; }
+  .openBetsLink { gap: 3px; font-size: 10px; }
   .content { width: min(100% - 28px, 560px); margin-top: 22px; }
   .title h1 { font-size: 28px; }
   .lookup { padding: 15px 13px; }
@@ -518,6 +613,7 @@
   .legStatus {
     grid-column: 2;
     grid-row: 1 / span 2;
+    align-self: center;
     justify-content: center;
   }
   .figures {
@@ -548,4 +644,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ticketSkeletons span { animation: none; }
+  .selectionToggle svg { transition: none; }
 }

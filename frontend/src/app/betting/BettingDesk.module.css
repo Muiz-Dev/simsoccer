@@ -22,11 +22,15 @@
 }
 
 .header {
-  min-height: 62px;
+  min-height: 68px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--desk-rule);
+  margin-top: 14px;
+  padding: 12px 20px;
+  border: 1px solid var(--desk-rule);
+  border-radius: 8px;
+  background: var(--desk-white);
 }
 
 .brand,
@@ -49,31 +53,66 @@
 
 .headerLinks {
   gap: 22px;
+  min-height: 34px;
+  flex-shrink: 0;
   color: var(--desk-muted);
   font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.headerLinks a {
+.headerLinks > a,
+.headerLinks > span {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
   color: inherit;
   text-decoration: none;
 }
 
-.headerLinks a:hover {
+.headerLinks > a:hover {
   color: var(--desk-pitch);
+}
+
+.headerLinks > a > svg {
+  display: block;
+  font-size: 18px;
+}
+
+.accountBalance {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 9px;
+  border: 1px solid #c6d2c9;
+  border-radius: 7px;
+  background: var(--desk-white);
+}
+
+.accountBalance > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--desk-pitch-deep);
+  line-height: 1;
+}
+
+.accountBalance > a > svg {
+  display: block;
+  font-size: 20px;
 }
 
 .walletBalance {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
   color: var(--desk-pitch-deep);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 650;
-}
-
-.walletBalance svg {
-  font-size: 16px;
+  line-height: 1;
 }
 
 .walletBalance small {
@@ -640,6 +679,19 @@
   cursor: pointer;
 }
 
+.selectionTitle button {
+  width: 22px;
+  height: 22px;
+}
+
+.selectionTitle button svg {
+  font-size: 16px;
+}
+
+.selectionTitle button:hover {
+  background: #566159;
+}
+
 .selectionMarket {
   display: flex;
   justify-content: space-between;
@@ -733,14 +785,34 @@
   font-size: 13px;
 }
 
+.stakeActionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, 0.9fr);
+  align-items: end;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.stakeActionRow .stakeField {
+  display: grid;
+  align-items: stretch;
+  gap: 4px;
+  margin: 0;
+}
+
 .stakeField > span {
   display: flex;
   align-items: center;
   gap: 5px;
 }
 
+.stakeActionRow .stakeField > span {
+  min-width: 0;
+}
+
 .stakeField input {
-  width: 112px;
+  width: 100%;
+  min-width: 0;
   min-height: 32px;
   padding: 4px 7px;
   border: 1px solid #727d75;
@@ -749,6 +821,10 @@
   color: white;
   font: inherit;
   font-size: 12px;
+}
+
+.stakeActionRow .stakeField input {
+  flex: 1;
 }
 
 .stakeField small {
@@ -802,6 +878,11 @@
   background: #47514a;
   color: #aab2ac;
   cursor: default;
+}
+
+.stakeActionRow .placeBetAction {
+  min-height: 36px;
+  margin-top: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1246,7 +1327,9 @@
   }
 
   .header {
-    min-height: 54px;
+    min-height: 58px;
+    margin-top: 10px;
+    padding: 8px 12px;
   }
 
   .brand {
@@ -1254,12 +1337,30 @@
   }
 
   .headerLinks {
-    gap: 12px;
+    gap: 9px;
     font-size: 11px;
   }
 
+  .headerLinks > a,
+  .headerLinks > span {
+    min-height: 32px;
+  }
+
+  .headerLinks > a > svg {
+    font-size: 17px;
+  }
+
+  .accountBalance {
+    gap: 6px;
+    min-height: 32px;
+    padding: 3px 7px;
+  }
+
+  .accountBalance > a > svg {
+    font-size: 18px;
+  }
+
   .walletBalance {
-    gap: 3px;
     font-size: 10px;
   }
 

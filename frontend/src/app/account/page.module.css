@@ -8,11 +8,14 @@
 .header {
   display: flex;
   width: min(100%, 1120px);
-  min-height: 62px;
+  min-height: 68px;
   align-items: center;
   justify-content: space-between;
-  margin: 0 auto;
-  border-bottom: 1px solid var(--rule);
+  margin: 14px auto 0;
+  padding: 12px 20px;
+  border: 1px solid #d2dbd4;
+  border-radius: 8px;
+  background: var(--surface, #fff);
 }
 
 .brand,
@@ -363,6 +366,11 @@
 
 @media (max-width: 520px) {
   .page { padding-inline: 16px; }
+  .header {
+    min-height: 58px;
+    margin-top: 10px;
+    padding: 8px 12px;
+  }
   .content { margin-top: 30px; }
   .heading h1 { font-size: 27px; }
   .accountSummary { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 17px; }

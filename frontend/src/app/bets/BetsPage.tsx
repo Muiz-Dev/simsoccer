@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import HighlightOffIcon from "@mui/icons-material/HighlightOff";
 import SearchIcon from "@mui/icons-material/Search";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import AuthAction from "@/components/AuthAction";
+import OpenBetsLink from "@/components/OpenBetsLink";
 import { restoreAccessToken } from "@/lib/auth-client";
 import styles from "./BetsPage.module.css";
 
@@ -50,7 +51,19 @@ type TicketPage = {
   hasMore: boolean;
 };
 
+type AccountBalanceResponse = {
+  account: {
+    wallet: { balance: string; currency: string } | null;
+  };
+};
+
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
+function formatCreditBalance(balance: string): string | null {
+  const value = Number(balance);
+  if (!Number.isFinite(value)) return null;
+  return value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 function formatStatus(status: string) {
   return status.charAt(0) + status.slice(1).toLowerCase();
@@ -73,6 +86,9 @@ async function readTicketPage(token: string, status: "OPEN" | "SETTLED", page: n
 }
 
 function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView?: boolean }) {
+  const [selectionsExpanded, setSelectionsExpanded] = useState(false);
+  const generatedId = useId();
+  const selectionsId = `ticket-selections-${ticket.id ?? generatedId}`;
   const hasLiveFixture = ticket.selections.some((selection) =>
     ["LIVE", "HALFTIME", "SECOND_HALF"].includes(selection.fixture?.status ?? ""),
   );
@@ -88,60 +104,72 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
         </div>
         <span className={`${styles.status} ${styles[`status${ticket.status}`] ?? ""}`}>{ticketStatus}</span>
       </header>
-      <ol className={styles.legs}>
-        {ticket.selections.map((selection, index) => (
-          <li key={selection.id ?? `${selection.outcomeCode}-${index}`}>
-            <div className={styles.match}>
-              <strong>{selection.fixture ? `${selection.fixture.homeTeam} v ${selection.fixture.awayTeam}` : "Match details unavailable"}</strong>
-              {selection.fixture ? (
-                <div className={styles.fixtureState}>
-                  {["LIVE", "HALFTIME", "SECOND_HALF"].includes(selection.fixture.status) ? (
-                    <>
-                      <span className={styles.liveLabel}>
-                        <span className={styles.liveDot} aria-hidden="true" />
-                        {selection.fixture.status === "HALFTIME" ? "Half-time" : "Live"}
+      <button
+        className={styles.selectionToggle}
+        type="button"
+        aria-expanded={selectionsExpanded}
+        aria-controls={selectionsId}
+        onClick={() => setSelectionsExpanded((expanded) => !expanded)}
+      >
+        <span>{selectionsExpanded ? "Hide" : "View"} {ticket.selections.length === 1 ? "selection" : `${ticket.selections.length} selections`}</span>
+        <ExpandMoreIcon className={selectionsExpanded ? styles.selectionToggleExpanded : ""} aria-hidden="true" />
+      </button>
+      {selectionsExpanded ? (
+        <ol className={styles.legs} id={selectionsId}>
+          {ticket.selections.map((selection, index) => (
+            <li key={selection.id ?? `${selection.outcomeCode}-${index}`}>
+              <div className={styles.match}>
+                <strong>{selection.fixture ? `${selection.fixture.homeTeam} v ${selection.fixture.awayTeam}` : "Match details unavailable"}</strong>
+                {selection.fixture ? (
+                  <div className={styles.fixtureState}>
+                    {["LIVE", "HALFTIME", "SECOND_HALF"].includes(selection.fixture.status) ? (
+                      <>
+                        <span className={styles.liveLabel}>
+                          <span className={styles.liveDot} aria-hidden="true" />
+                          {selection.fixture.status === "HALFTIME" ? "Half-time" : "Live"}
+                        </span>
+                        <strong className={styles.score}>
+                          {selection.fixture.homeScore ?? 0} – {selection.fixture.awayScore ?? 0}
+                        </strong>
+                      </>
+                    ) : selection.fixture.status === "FINISHED" ? (
+                      <>
+                        <span className={styles.finishedLabel}>Full time</span>
+                        <strong className={styles.score}>
+                          {selection.fixture.homeScore ?? 0} – {selection.fixture.awayScore ?? 0}
+                        </strong>
+                      </>
+                    ) : (
+                      <span>
+                        {selection.fixture.status === "CANCELLED" || selection.fixture.status === "POSTPONED"
+                          ? formatStatus(selection.fixture.status)
+                          : new Date(selection.fixture.scheduledAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
                       </span>
-                      <strong className={styles.score}>
-                        {selection.fixture.homeScore ?? 0} – {selection.fixture.awayScore ?? 0}
-                      </strong>
-                    </>
-                  ) : selection.fixture.status === "FINISHED" ? (
-                    <>
-                      <span className={styles.finishedLabel}>Full time</span>
-                      <strong className={styles.score}>
-                        {selection.fixture.homeScore ?? 0} – {selection.fixture.awayScore ?? 0}
-                      </strong>
-                    </>
-                  ) : (
-                    <span>
-                      {selection.fixture.status === "CANCELLED" || selection.fixture.status === "POSTPONED"
-                        ? formatStatus(selection.fixture.status)
-                        : new Date(selection.fixture.scheduledAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}
-                    </span>
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <div className={styles.pick}>
-              <span>{selection.displayName}</span>
-              <strong>{Number(selection.odds).toFixed(2)}</strong>
-            </div>
-            {selection.status === "WON" ? (
-              <span className={`${styles.legStatus} ${styles.legWon}`} role="img" aria-label="Won" title="Won">
-                <CheckCircleIcon aria-hidden="true" />
-              </span>
-            ) : selection.status === "LOST" ? (
-              <span className={`${styles.legStatus} ${styles.legLost}`} role="img" aria-label="Lost" title="Lost">
-                <HighlightOffIcon aria-hidden="true" />
-              </span>
-            ) : selection.status === "VOID" ? (
-              <span className={`${styles.legStatus} ${styles[`status${selection.status}`] ?? ""}`}>
-                Void
-              </span>
-            ) : <span className={styles.legStatus} aria-hidden="true" />}
-          </li>
-        ))}
-      </ol>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+              <div className={styles.pick}>
+                <span>{selection.displayName}</span>
+                <strong>{Number(selection.odds).toFixed(2)}</strong>
+              </div>
+              {selection.status === "WON" ? (
+                <span className={`${styles.legStatus} ${styles.legWon}`} role="img" aria-label="Won" title="Won">
+                  <CheckCircleIcon aria-hidden="true" />
+                </span>
+              ) : selection.status === "LOST" ? (
+                <span className={`${styles.legStatus} ${styles.legLost}`} role="img" aria-label="Lost" title="Lost">
+                  <HighlightOffIcon aria-hidden="true" />
+                </span>
+              ) : selection.status === "VOID" ? (
+                <span className={`${styles.legStatus} ${styles[`status${selection.status}`] ?? ""}`}>
+                  Void
+                </span>
+              ) : <span className={styles.legStatus} aria-hidden="true" />}
+            </li>
+          ))}
+        </ol>
+      ) : null}
       <dl className={styles.figures}>
         <div><dt>Stake</dt><dd>{ticket.stake}</dd></div>
         <div><dt>Combined odds</dt><dd>{ticket.totalOdds}</dd></div>
@@ -154,6 +182,8 @@ function TicketCard({ ticket, publicView = false }: { ticket: Ticket; publicView
 
 export default function BetsPage() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [walletBalanceUnavailable, setWalletBalanceUnavailable] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [openTicketCount, setOpenTicketCount] = useState(0);
   const [ticketCount, setTicketCount] = useState(0);
@@ -200,6 +230,49 @@ export default function BetsPage() {
       historyRequestId.current += 1;
     };
   }, []);
+
+  useEffect(() => {
+    if (signedIn !== true) return;
+
+    let active = true;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const token = await restoreAccessToken();
+        if (!token) {
+          if (active) {
+            setSignedIn(false);
+            setWalletBalance(null);
+            setWalletBalanceUnavailable(false);
+          }
+          return;
+        }
+        const response = await fetch("/api/auth/account/me", {
+          headers: { Authorization: ["Bearer", token].join(" ") },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Credit balance returned HTTP ${response.status}.`);
+        const result = await response.json() as AccountBalanceResponse;
+        const balance = result.account.wallet?.balance ?? null;
+        const formattedBalance = balance === null ? null : formatCreditBalance(balance);
+        if (active) {
+          setWalletBalance(formattedBalance);
+          setWalletBalanceUnavailable(formattedBalance === null);
+        }
+      } catch (cause) {
+        if (active && !controller.signal.aborted) {
+          console.error("Unable to load credit balance.", cause);
+          setWalletBalance(null);
+          setWalletBalanceUnavailable(true);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [signedIn]);
 
   useEffect(() => {
     if (!signedIn) return;
@@ -339,13 +412,28 @@ export default function BetsPage() {
           <span>SimSoccer</span>
         </Link>
         <nav aria-label="Page links">
-          <Link href="/betting">Betting desk</Link>
-          <AuthAction />
+          {signedIn ? (
+            <>
+              <OpenBetsLink active className={styles.openBetsLink} />
+              <div className={styles.accountBalance}>
+                <AuthAction />
+                <span
+                  className={styles.balanceAmount}
+                  aria-label={walletBalanceUnavailable
+                    ? "Credit balance unavailable"
+                    : `Credit balance ${walletBalance === null ? "loading" : `${walletBalance} credits`}`}
+                  title="Play-money credit balance"
+                  aria-live="polite"
+                >
+                  {walletBalanceUnavailable ? "Unavailable" : walletBalance ?? "Loading…"}
+                </span>
+              </div>
+            </>
+          ) : signedIn === false ? <AuthAction /> : null}
         </nav>
       </header>
 
       <div className={styles.content}>
-        <Link className={styles.backLink} href="/betting"><ArrowBackIcon fontSize="small" /> Betting desk</Link>
         <div className={styles.title}>
           <h1>My bets</h1>
         </div>

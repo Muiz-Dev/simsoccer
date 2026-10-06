@@ -2,15 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
-import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Skeleton from "@mui/material/Skeleton";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
-import Tooltip from "@mui/material/Tooltip";
 import NavigateBeforeIcon from "@mui/icons-material/NavigateBefore";
 import NavigateNextIcon from "@mui/icons-material/NavigateNext";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -18,11 +17,10 @@ import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import FormatListNumberedIcon from "@mui/icons-material/FormatListNumbered";
 import HistoryIcon from "@mui/icons-material/History";
 import LiveTvIcon from "@mui/icons-material/LiveTv";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
-import RefreshIcon from "@mui/icons-material/Refresh";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
-import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
 import AuthAction from "@/components/AuthAction";
+import OpenBetsLink from "@/components/OpenBetsLink";
+import { getAccessToken, subscribeAuth } from "@/lib/auth-client";
 import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
 import type { Fixture, Standing, WorldOverview } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
@@ -30,6 +28,16 @@ import styles from "./MatchCentre.module.css";
 
 export type MatchCentreView = "live" | "fixtures" | "results" | "table";
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const leagueLogoByName: Record<string, string> = {
+  "la liga": "/leagues/la-liga.svg",
+  laliga: "/leagues/la-liga.svg",
+  "premier league": "/leagues/premier-league.svg",
+  "serie a": "/leagues/serie-a.svg",
+};
+
+function getLeagueLogo(name: string): string | null {
+  return leagueLogoByName[name.trim().toLocaleLowerCase()] ?? null;
+}
 
 type NavItem = { href: string; label: string; icon: typeof LiveTvIcon };
 type MatchStatRow = {
@@ -45,7 +53,6 @@ const navigation: NavItem[] = [
   { href: "/fixtures", label: "Fixtures", icon: CalendarMonthIcon },
   { href: "/results", label: "Results", icon: HistoryIcon },
   { href: "/table", label: "Table", icon: FormatListNumberedIcon },
-  { href: "/bets", label: "My bets", icon: ReceiptLongIcon },
 ];
 
 function MatchRow({ fixture, serverNow, timeZone, detailsEnabled = false }: {
@@ -435,6 +442,18 @@ function ResultsList({ fixtures, serverNow, loading, timeZone }: { fixtures: Fix
   );
 }
 
+type AccountBalanceResponse = {
+  account: {
+    wallet: { balance: string; currency: string } | null;
+  };
+};
+
+function formatCreditBalance(balance: string): string | null {
+  const value = Number(balance);
+  if (!Number.isFinite(value)) return null;
+  return value.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export default function MatchCentre({ view }: { view: MatchCentreView }) {
   const pathname = usePathname();
   const timeZone = useBrowserTimeZone();
@@ -445,15 +464,82 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
     selectedLeague: activeSelectedLeague,
     selectedLeagueId,
     setSelectedLeagueId,
-    refresh,
     error,
     serverNow,
   } = useWorldData();
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [walletBalanceUnavailable, setWalletBalanceUnavailable] = useState(false);
   const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number | null>(null);
   const [resultRound, setResultRound] = useState<number | null>(null);
   const [seasonOverview, setSeasonOverview] = useState<WorldOverview | null>(null);
   const [seasonLoading, setSeasonLoading] = useState(false);
   const [seasonError, setSeasonError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const updateAuth = (value: boolean) => {
+      setSignedIn(value);
+      if (!value) {
+        setWalletBalance(null);
+        setWalletBalanceUnavailable(false);
+      }
+    };
+    const unsubscribe = subscribeAuth(updateAuth);
+    void getAccessToken()
+      .then((token) => { if (active) updateAuth(Boolean(token)); })
+      .catch((cause) => {
+        console.error("Unable to determine account sign-in status.", cause);
+        if (active) updateAuth(false);
+      });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (signedIn !== true) return;
+
+    let active = true;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) {
+          if (active) {
+            setSignedIn(false);
+            setWalletBalance(null);
+            setWalletBalanceUnavailable(false);
+          }
+          return;
+        }
+        const response = await fetch("/api/auth/account/me", {
+          headers: { Authorization: ["Bearer", token].join(" ") },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Credit balance returned HTTP ${response.status}.`);
+        const account = await response.json() as AccountBalanceResponse;
+        const balance = account.account.wallet?.balance ?? null;
+        const formattedBalance = balance === null ? null : formatCreditBalance(balance);
+        if (active) {
+          setWalletBalance(formattedBalance);
+          setWalletBalanceUnavailable(formattedBalance === null);
+        }
+      } catch (cause) {
+        if (active && !controller.signal.aborted) {
+          console.error("Unable to load credit balance.", cause);
+          setWalletBalance(null);
+          setWalletBalanceUnavailable(true);
+        }
+      }
+    })();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [signedIn]);
 
   useGSAP(() => {
     if (animated.current || !pageRef.current) return;
@@ -597,14 +683,23 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           <SportsSoccerIcon aria-hidden="true" />
           <span>SimSoccer</span>
         </Link>
-        <div className={styles.worldStatus} aria-live="polite">
-          {overview ? <><SignalWifiStatusbar4BarIcon aria-hidden="true" /><span>World connected</span></> : error ? <span className={styles.error}>Offline</span> : <CircularProgress size={14} aria-label="Connecting" />}
-          <Tooltip title="Refresh match data">
-            <IconButton aria-label="Refresh match data" onClick={refresh} size="small" className={styles.refresh}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-          <AuthAction />
+        <div className={styles.headerActions}>
+          {signedIn ? <OpenBetsLink className={styles.openBetsLink} /> : null}
+          <div className={styles.accountBalance}>
+            <AuthAction />
+            {signedIn ? (
+              <span
+                className={styles.balanceAmount}
+                aria-label={walletBalanceUnavailable
+                  ? "Credit balance unavailable"
+                  : `Credit balance ${walletBalance === null ? "loading" : `${walletBalance} credits`}`}
+                title="Play-money credit balance"
+                aria-live="polite"
+              >
+                {walletBalanceUnavailable ? "Unavailable" : walletBalance ?? "Loading…"}
+              </span>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -638,7 +733,25 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
             allowScrollButtonsMobile
             aria-label="Competitions"
           >
-            {overview.leagues.map((league) => <Tab key={league.league.id} label={league.league.name} value={league.league.id} />)}
+            {overview.leagues.map((league) => {
+              const logo = getLeagueLogo(league.league.name);
+              return (
+                <Tab
+                  key={league.league.id}
+                  value={league.league.id}
+                  label={
+                    <span className={styles.competitionTabLabel}>
+                      {logo ? (
+                        <Image src={logo} alt="" width={22} height={22} aria-hidden="true" />
+                      ) : (
+                        <SportsSoccerIcon aria-hidden="true" />
+                      )}
+                      <span>{league.league.name}</span>
+                    </span>
+                  }
+                />
+              );
+            })}
           </Tabs>
         </nav>
       ) : null}
@@ -715,7 +828,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <span className={styles.count}>{displayedSeasonName} standings</span>
             </div>
             {displayOverview ? <StandingsTable rows={selectedLeague?.standings ?? []} /> : seasonLoading ? <StandingsSkeleton /> : seasonError ? null : (
-              <p className={styles.empty}>The table is unavailable. Use refresh to try again.</p>
+              <p className={styles.empty}>The table is unavailable right now. Try again shortly.</p>
             )}
           </>
         ) : null}
