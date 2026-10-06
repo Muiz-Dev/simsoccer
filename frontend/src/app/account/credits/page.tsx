@@ -137,7 +137,7 @@ function standardWalletChoice(wallet: StandardSolanaWallet): WalletChoice {
             account,
             chain: "solana:devnet",
             transaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }),
-            options: { preflightCommitment: "confirmed", commitment: "confirmed" },
+            options: { preflightCommitment: "confirmed" },
           });
           if (!result?.signature) throw new Error("The wallet did not return a transaction signature.");
           return bs58.encode(result.signature);
@@ -238,6 +238,7 @@ export default function CreditPurchasePage() {
   const [walletChoices, setWalletChoices] = useState<WalletChoice[]>([]);
   const [activeWallet, setActiveWallet] = useState<ConnectedWallet | null>(null);
   const [walletChooserOpen, setWalletChooserOpen] = useState(false);
+  const [connectingWalletId, setConnectingWalletId] = useState<string | null>(null);
   const [order, setOrder] = useState<PaymentOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -340,6 +341,7 @@ export default function CreditPurchasePage() {
   }, [order]);
 
   async function connectWallet(choice: WalletChoice): Promise<ConnectedWallet | null> {
+    setConnectingWalletId(choice.id);
     setBusy(true);
     setError("");
     setNotice("");
@@ -354,6 +356,7 @@ export default function CreditPurchasePage() {
       setError(cause instanceof Error ? cause.message : "Wallet connection failed.");
       return null;
     } finally {
+      setConnectingWalletId(null);
       setBusy(false);
     }
   }
@@ -406,7 +409,7 @@ export default function CreditPurchasePage() {
     }
   }
 
-  async function payWithPhantom() {
+  async function payWithWallet() {
     if (!order) return;
     setBusy(true);
     setError("");
@@ -611,9 +614,9 @@ export default function CreditPurchasePage() {
                 ) : null}
 
                 {order.status === "PENDING" && secondsLeft > 0 ? (
-                  <button className={styles.primaryButton} type="button" onClick={() => void payWithPhantom()} disabled={busy}>
+                  <button className={styles.primaryButton} type="button" onClick={() => void payWithWallet()} disabled={busy}>
                     {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
-                    {busy ? "Waiting for wallet…" : `Pay ${formatSol(order.expectedLamports)} with Phantom`}
+                    {busy ? "Waiting for wallet…" : `Pay ${formatSol(order.expectedLamports)} with ${activeWallet?.name ?? "wallet"}`}
                   </button>
                 ) : null}
                 {retryable ? (
@@ -646,9 +649,11 @@ export default function CreditPurchasePage() {
                       if (connected) await createOrder(connected.address);
                     })()}
                   >
-                    {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
+                    {connectingWalletId === choice.id ? <span className={styles.spinner} aria-hidden="true" /> : null}
                     {choice.icon ? (
-                      <Image className={styles.walletIcon} src={choice.icon} alt="" width={28} height={28} unoptimized />
+                      <span className={styles.walletIconFrame}>
+                        <Image className={styles.walletIcon} src={choice.icon} alt="" width={28} height={28} unoptimized />
+                      </span>
                     ) : (
                       <AccountBalanceWalletIcon className={styles.walletIconFallback} aria-hidden="true" />
                     )}
