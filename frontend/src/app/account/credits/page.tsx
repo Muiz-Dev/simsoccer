@@ -9,9 +9,11 @@ import {
   type SolanaSignAndSendTransactionFeature,
 } from "@solana/wallet-standard-features";
 import bs58 from "bs58";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import type { Transaction } from "@solana/web3.js";
 import { getAccessToken } from "@/lib/auth-client";
@@ -62,6 +64,7 @@ type LegacySolanaProvider = {
   isBackpack?: boolean;
   isBraveWallet?: boolean;
   name?: string;
+  icon?: string;
   publicKey?: { toString(): string } | null;
   connect: () => Promise<{ publicKey?: { toString(): string } } | void>;
   signAndSendTransaction: (
@@ -84,6 +87,7 @@ type ConnectedWallet = {
 type WalletChoice = {
   id: string;
   name: string;
+  icon: string | null;
   connect: () => Promise<ConnectedWallet>;
 };
 
@@ -115,6 +119,7 @@ function standardWalletChoice(wallet: StandardSolanaWallet): WalletChoice {
   return {
     id: `standard:${wallet.name}`,
     name: wallet.name,
+    icon: wallet.icon,
     connect: async () => {
       const { accounts } = await wallet.features[StandardConnect].connect();
       const account: WalletAccount | undefined = accounts.find((item) => (
@@ -146,6 +151,7 @@ function legacyWalletChoice(id: string, name: string, provider: LegacySolanaProv
   return {
     id,
     name,
+    icon: typeof provider.icon === "string" && provider.icon.startsWith("data:image/") ? provider.icon : null,
     connect: async () => {
       const connection = await provider.connect();
       const address = connection?.publicKey?.toString() ?? provider.publicKey?.toString();
@@ -641,7 +647,12 @@ export default function CreditPurchasePage() {
                     })()}
                   >
                     {busy ? <span className={styles.spinner} aria-hidden="true" /> : null}
-                    {choice.name}
+                    {choice.icon ? (
+                      <Image className={styles.walletIcon} src={choice.icon} alt="" width={28} height={28} unoptimized />
+                    ) : (
+                      <AccountBalanceWalletIcon className={styles.walletIconFallback} aria-hidden="true" />
+                    )}
+                    <span>{choice.name}</span>
                   </button>
                 ))}
               </div>
