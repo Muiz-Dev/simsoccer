@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { db } from './db/index';
-import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, matchStatistics, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, users, authSessions, authDevices, authChallenges, adminCredentials, adminSessions, adminAuditLog } from './db/schema/index';
+import { leagues, seasons, teams, players, teamRatings, fixtures, matches, matchEvents, matchStatistics, markets, marketOutcomes, wallets, walletTransactions, bets, betSelections, settlements, standings, users, authSessions, authDevices, authChallenges, adminCredentials, adminSessions, adminAuditLog, solanaPaymentOrders, solanaPaymentAttempts } from './db/schema/index';
 import { authenticateJwt, requireLocalAccount, requireRole, AuthenticatedRequest } from './auth/jwt';
 import { placePlayMoneyBet } from './betting/bet-service';
 import { createBookingSlip, listBettingMarkets, loadBookingSlip } from './betting/market-service';
@@ -18,6 +18,14 @@ import { eq, and, asc, desc, inArray, ilike, or, isNull, gt, sql } from 'drizzle
 import { getPrimaryAdminCredential, verifyAdminPin, createAdminSessionToken, hashSessionToken, readAdminSessionTokenFromRequest, getAdminCookieOptions, resolveAdminSession, revokeAdminSession } from './admin/security';
 import { coerceLeagueInput, coerceTeamInput } from './admin/operations';
 import { z } from 'zod';
+import {
+  createSolanaPaymentOrder,
+  getSolanaPaymentConfig,
+  getSolanaPaymentOrder,
+  reconcileSolanaPaymentOrder,
+  SolanaPaymentError,
+  submitSolanaPaymentSignature,
+} from './payments/solana-payment-service';
 
 const placeBetRequestSchema = z.object({
   selections: z.array(z.object({
@@ -76,6 +84,62 @@ const ticketLookupLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many ticket lookups. Try again later.' },
 });
+const solanaOrderCreateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many payment orders created. Try again later.' },
+});
+const solanaPaymentStatusLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  message: { error: 'TOO_MANY_ATTEMPTS', message: 'Too many payment status checks. Try again shortly.' },
+});
+
+const solanaOrderRequestSchema = z.object({
+  packageId: z.enum(['credits-1000', 'credits-5000']),
+  payerAddress: z.string().min(32).max(64),
+  idempotencyKey: z.string().uuid(),
+}).strict();
+const solanaSignatureRequestSchema = z.object({
+  signature: z.string().min(80).max(90),
+}).strict();
+
+function publicSolanaOrder(order: Awaited<ReturnType<typeof createSolanaPaymentOrder>>) {
+  return {
+    id: order.id,
+    packageId: order.packageId,
+    creditAmount: order.creditAmount,
+    usdCents: order.usdCents,
+    solUsdPrice: order.solUsdPrice,
+    priceProvider: order.priceProvider,
+    priceObservedAt: order.priceObservedAt,
+    priceFetchedAt: order.priceFetchedAt,
+    expectedLamports: order.expectedLamports,
+    network: order.network,
+    treasuryAddress: order.treasuryAddress,
+    payerAddress: order.payerAddress,
+    referenceAddress: order.referenceAddress,
+    status: order.status,
+    transactionSignature: order.transactionSignature,
+    reviewReason: order.reviewReason,
+    expiresAt: order.expiresAt,
+    verifiedAt: order.verifiedAt,
+    creditedAt: order.creditedAt,
+    createdAt: order.createdAt,
+  };
+}
+
+function sendSolanaPaymentError(res: Response, error: unknown, action: string) {
+  if (error instanceof SolanaPaymentError) {
+    return res.status(error.statusCode).json({ error: error.code, message: error.message });
+  }
+  console.error(`${action} failed:`, error);
+  return res.status(503).json({ error: 'SOLANA_PAYMENT_UNAVAILABLE', message: `${action} is temporarily unavailable. Try again.` });
+}
 
 async function attachBetTicketDetails(betRows: Array<typeof bets.$inferSelect>) {
   if (betRows.length === 0) return [];
@@ -460,6 +524,36 @@ export function createApp() {
     }
 
     return res.json({ user: { id: 'primary', role: 'admin' }, session: { id: session.id, idleExpiresAt: session.idleExpiresAt, absoluteExpiresAt: session.absoluteExpiresAt } });
+  });
+
+  app.get('/api/admin/solana-payments/review', async (req: Request, res: Response) => {
+    const session = await requireAdminSession(req, res);
+    if (!session) return;
+    const limit = z.coerce.number().int().min(1).max(100).catch(50).parse(req.query.limit);
+    try {
+      const orders = await db.select().from(solanaPaymentOrders)
+        .where(or(
+          inArray(solanaPaymentOrders.status, ['EXPIRED', 'FAILED', 'UNDERPAID', 'OVERPAID', 'REQUIRES_REVIEW']),
+          inArray(
+            solanaPaymentOrders.id,
+            db.select({ orderId: solanaPaymentAttempts.orderId })
+              .from(solanaPaymentAttempts)
+              .where(inArray(solanaPaymentAttempts.status, ['FAILED', 'UNDERPAID', 'OVERPAID', 'REQUIRES_REVIEW'])),
+          ),
+        ))
+        .orderBy(desc(solanaPaymentOrders.updatedAt))
+        .limit(limit);
+      const orderIds = orders.map((order) => order.id);
+      const attempts = orderIds.length
+        ? await db.select().from(solanaPaymentAttempts)
+          .where(inArray(solanaPaymentAttempts.orderId, orderIds))
+          .orderBy(desc(solanaPaymentAttempts.observedAt))
+        : [];
+      return res.json({ orders, attempts });
+    } catch (error) {
+      console.error('Solana payment review queue failed:', error);
+      return res.status(503).json({ error: 'PAYMENT_REVIEW_UNAVAILABLE', message: 'The payment review queue is temporarily unavailable.' });
+    }
   });
 
   app.get('/api/admin/summary', async (req: Request, res: Response) => {
@@ -1160,6 +1254,75 @@ export function createApp() {
     } catch (error) {
       console.error('Public ticket lookup failed:', error);
       return res.status(503).json({ error: 'TICKET_LOOKUP_UNAVAILABLE', message: 'Ticket details are temporarily unavailable.' });
+    }
+  });
+
+  app.get('/api/wallet/solana/config', authenticateJwt, requireLocalAccount, (req: AuthenticatedRequest, res: Response) => {
+    try {
+      return res.json(getSolanaPaymentConfig());
+    } catch (error) {
+      return sendSolanaPaymentError(res, error, 'Solana payment configuration lookup');
+    }
+  });
+
+  app.post('/api/wallet/solana/orders', authenticateJwt, requireLocalAccount, solanaOrderCreateLimiter, async (req: AuthenticatedRequest, res: Response) => {
+    const parsed = solanaOrderRequestSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'INVALID_PAYMENT_ORDER', message: 'Choose a package and connect a valid Solana wallet.' });
+    }
+    try {
+      const order = await createSolanaPaymentOrder(
+        req.user!.id,
+        parsed.data.packageId,
+        parsed.data.payerAddress,
+        parsed.data.idempotencyKey,
+      );
+      return res.status(201).json({ order: publicSolanaOrder(order) });
+    } catch (error) {
+      return sendSolanaPaymentError(res, error, 'Solana payment order creation');
+    }
+  });
+
+  app.get('/api/wallet/solana/orders/:orderId', authenticateJwt, requireLocalAccount, solanaPaymentStatusLimiter, async (req: AuthenticatedRequest, res: Response) => {
+    const orderId = z.string().uuid().safeParse(req.params.orderId);
+    if (!orderId.success) {
+      return res.status(400).json({ error: 'INVALID_ORDER_ID', message: 'Choose a valid payment order.' });
+    }
+    try {
+      const order = await getSolanaPaymentOrder(req.user!.id, orderId.data);
+      const reconciled = await reconcileSolanaPaymentOrder(order.id);
+      return res.json({ order: publicSolanaOrder(reconciled) });
+    } catch (error) {
+      return sendSolanaPaymentError(res, error, 'Solana payment status lookup');
+    }
+  });
+
+  app.post('/api/wallet/solana/orders/:orderId/submit', authenticateJwt, requireLocalAccount, solanaPaymentStatusLimiter, async (req: AuthenticatedRequest, res: Response) => {
+    const orderId = z.string().uuid().safeParse(req.params.orderId);
+    const parsed = solanaSignatureRequestSchema.safeParse(req.body ?? {});
+    if (!orderId.success || !parsed.success) {
+      return res.status(400).json({ error: 'INVALID_PAYMENT_SUBMISSION', message: 'Submit a valid payment order and transaction signature.' });
+    }
+    try {
+      const submittedOrder = await submitSolanaPaymentSignature(
+        req.user!.id,
+        orderId.data,
+        parsed.data.signature,
+      );
+      try {
+        const order = await reconcileSolanaPaymentOrder(submittedOrder.id, parsed.data.signature);
+        return res.status(order.status === 'CREDITED' ? 200 : 202).json({ order: publicSolanaOrder(order) });
+      } catch (error) {
+        if (error instanceof SolanaPaymentError) return sendSolanaPaymentError(res, error, 'Solana payment verification');
+        console.error(`Solana payment verification deferred for order ${submittedOrder.id}:`, error);
+        return res.status(503).json({
+          error: 'PAYMENT_VERIFICATION_DEFERRED',
+          message: 'Your transaction was submitted, but confirmation is temporarily unavailable. We will keep checking it.',
+          order: publicSolanaOrder(submittedOrder),
+        });
+      }
+    } catch (error) {
+      return sendSolanaPaymentError(res, error, 'Solana payment submission');
     }
   });
 

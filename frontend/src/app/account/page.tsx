@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CreditCardIcon from "@mui/icons-material/CreditCard";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import SecurityIcon from "@mui/icons-material/Security";
 import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
@@ -22,6 +23,7 @@ type Account = {
 
 const shortcuts = [
   { href: "/bets", title: "My bets", description: "Open tickets and results", icon: ReceiptLongIcon },
+  { href: "/account/credits", title: "Add SIM Credits", description: "Devnet wallet checkout", icon: CreditCardIcon },
   { href: "/account/transactions", title: "Transaction history", description: "Wallet credits and activity", icon: WalletIcon },
   { href: "/account/settings", title: "Settings", description: "Profile, password and sessions", icon: SecurityIcon },
 ];

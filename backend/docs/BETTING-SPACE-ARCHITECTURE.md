@@ -2,7 +2,7 @@
 
 **Status:** Product and engineering specification; authenticated play-money placement and ticket history are implemented
 **Scope:** Pre-match market browsing, reusable booking codes, authenticated play-money bet placement, ticket history, settlement, and single-ticket lookup by access code
-**Out of scope:** In-play odds, cash-out, real-money gambling, and deposits
+**Out of scope:** In-play odds, cash-out, real-money gambling, and mainnet deposits
 
 ## 1. Product Boundary
 
@@ -15,6 +15,7 @@ The application can be organized as a modular monolith initially, but betting mu
 ## 2. Product Decisions Captured
 
 - The initial objective is play-money development. Real-money use would require a separate legal, payments, identity, fraud, and jurisdictional review.
+- An opt-in devnet-only SOL-to-credit prototype is documented in [SOLANA-CREDITS-PAYMENTS.md](./SOLANA-CREDITS-PAYMENTS.md). It does not enable mainnet deposits or change betting and settlement; a payment rail does not by itself make paid wagering legally permissible.
 - Users may browse markets and build a slip without signing in. Placing a play-money bet requires a signed-in account and an adequately funded wallet.
 - A **booking code** is a public, reusable reference to a not-yet-placed selection slip. It does not represent a wager, reserve odds, reserve a balance, or guarantee future availability.
 - A **bet slip ID** is created only after a bet is accepted. It identifies the persisted wager, its accepted odds, stake, potential return, and later settlement. Never label a booking code as a bet slip ID or coupon.

@@ -340,6 +340,48 @@ export const wallets = pgTable('wallets', {
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
+export const solanaPaymentOrders = pgTable('solana_payment_orders', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  idempotencyKey: text('idempotency_key').notNull().unique(),
+  packageId: text('package_id').notNull(),
+  creditAmount: numeric('credit_amount', { precision: 12, scale: 2 }).notNull(),
+  usdCents: integer('usd_cents').notNull(),
+  solUsdPrice: text('sol_usd_price').notNull(),
+  priceProvider: text('price_provider').notNull(),
+  priceObservedAt: timestamp('price_observed_at').notNull(),
+  priceFetchedAt: timestamp('price_fetched_at').notNull(),
+  expectedLamports: numeric('expected_lamports', { precision: 20, scale: 0 }).notNull(),
+  network: text('network').notNull(),
+  treasuryAddress: text('treasury_address').notNull(),
+  payerAddress: text('payer_address').notNull(),
+  referenceAddress: text('reference_address').notNull().unique(),
+  status: text('status').notNull().default('PENDING'),
+  transactionSignature: text('transaction_signature'),
+  reviewReason: text('review_reason'),
+  expiresAt: timestamp('expires_at').notNull(),
+  verifiedAt: timestamp('verified_at'),
+  creditedAt: timestamp('credited_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('solana_payment_orders_user_created_idx').on(table.userId, table.createdAt),
+  index('solana_payment_orders_status_expiry_idx').on(table.status, table.expiresAt),
+]);
+
+export const solanaPaymentAttempts = pgTable('solana_payment_attempts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  orderId: uuid('order_id').notNull().references(() => solanaPaymentOrders.id),
+  signature: text('signature').notNull().unique(),
+  status: text('status').notNull(),
+  actualLamports: numeric('actual_lamports', { precision: 20, scale: 0 }),
+  transactionBlockTime: timestamp('transaction_block_time'),
+  details: text('details'),
+  observedAt: timestamp('observed_at').notNull().defaultNow(),
+}, (table) => [
+  index('solana_payment_attempts_order_idx').on(table.orderId, table.observedAt),
+]);
+
 export const walletTransactions = pgTable('wallet_transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
   walletId: uuid('wallet_id').notNull().references(() => wallets.id),

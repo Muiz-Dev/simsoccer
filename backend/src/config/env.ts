@@ -21,6 +21,12 @@ const envSchema = z.object({
   ALLOW_UNSAFE_DB: z.string().optional().default('false').transform((val) => val === 'true'),
   ALLOW_UNSAFE_SEEDS: z.string().optional().default('false').transform((val) => val === 'true'),
 
+  SOLANA_PAYMENTS_ENABLED: z.enum(['true', 'false']).default('false').transform((val) => val === 'true'),
+  SOLANA_CLUSTER: z.enum(['devnet']).default('devnet'),
+  SOLANA_RPC_URL: z.string().url().default('https://api.devnet.solana.com'),
+  SOLANA_TREASURY_ADDRESS: z.string().optional(),
+  SOLANA_PAYMENT_ORDER_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
+
   TICK_RATE_MS: z.string().default('1000').transform((val) => parseInt(val, 10)),
   MATCH_REAL_DURATION_SECONDS: z.string().default('5400').transform((val) => parseInt(val, 10)),
   SIMULATION_WORKER_CONCURRENCY: z.string().default('30').transform((val) => parseInt(val, 10)),
@@ -41,6 +47,14 @@ if (!_env.success) {
 }
 
 export const env = _env.data;
+
+if (env.SOLANA_PAYMENTS_ENABLED && env.NODE_ENV === 'production') {
+  throw new Error('Solana payments are restricted to non-production devnet environments.');
+}
+
+if (env.SOLANA_PAYMENTS_ENABLED && !env.SOLANA_TREASURY_ADDRESS) {
+  throw new Error('SOLANA_TREASURY_ADDRESS is required when Solana devnet payments are enabled.');
+}
 
 if (env.NODE_ENV === 'production' && (!env.AUTH_ISSUER || !env.AUTH_JWKS_URL)) {
   throw new Error('Production requires AUTH_ISSUER and AUTH_JWKS_URL.');

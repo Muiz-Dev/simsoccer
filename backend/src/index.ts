@@ -2,9 +2,11 @@ import http from 'http';
 import { createApp } from './app';
 import { env } from './config/env';
 import { setupWebSocketServer } from './realtime/websocket';
+import { startSolanaPaymentReconciliation } from './payments/reconciliation';
 
 const app = createApp();
 const server = http.createServer(app);
+const stopPaymentReconciliation = startSolanaPaymentReconciliation();
 
 // Initialize WebSocket server
 setupWebSocketServer(server);
@@ -17,6 +19,7 @@ server.listen(env.PORT, () => {
 
 async function gracefulShutdown(signal: string) {
   console.log(`Received ${signal}. Shutting down API and WebSocket server...`);
+  stopPaymentReconciliation();
   server.close(() => {
     process.exit(0);
   });

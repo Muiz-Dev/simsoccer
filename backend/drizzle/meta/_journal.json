@@ -92,6 +92,13 @@
       "when": 1791205452943,
       "tag": "0012_settlement_retry_backoff",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791287995370,
+      "tag": "0013_solana_credit_payments",
+      "breakpoints": true
     }
   ]
 }

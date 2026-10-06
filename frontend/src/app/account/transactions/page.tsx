@@ -25,6 +25,7 @@ const transactionLabels: Record<string, string> = {
   WIN_PAYOUT: "Winnings",
   BONUS: "Bonus",
   ADMIN_ADJUSTMENT: "Balance adjustment",
+  SOLANA_PURCHASE_CREDIT: "SIM Credits purchase",
 };
 
 export default function TransactionHistoryPage() {
