@@ -77,14 +77,14 @@ This is one simulator sample, not a real-football benchmark or production-databa
 - **Goal totals:** publish both Over and Under at every `0.5` increment from `0.5` through `5.5`, including whole-number lines. A whole-number exact result pushes the selection. This first range can be extended later if calibration supports it.
 - **Corners:** publish both sides of half-lines `6.5` through `14.5`. This is an initial configurable ladder around the simulator's observed total-corner mean; it is not a claim that all books offer the same lines.
 - **Standard margin:** use `4.5%` for standard complete markets. Keep Correct Score at its separate `8%` until its outcome coverage/pricing is deliberately revisited. This changes pricing margin, not simulation randomness.
-- **Match details:** preserve the existing match-centre layout and extend its expandable live/results timeline with all event types and compact match statistics.
+- **Match details:** preserve the existing match-centre layout. Expanded live/results details show goal markers under their scoring team and a compact, fixed set of comparison stats; they do not replay every event.
 
 The implementation follows those decisions additively: it creates missing markets for eligible scheduled fixtures and does not rewrite existing market, bet, settlement, or statistics rows. Legacy `TOTAL_CORNERS` 9.5 records cover that line and are not duplicated. No database connection, live-data query, reset, or seed command was run.
 
 ### Implemented behavior
 
 - Card incidents retain their existing event type and now include metadata that identifies the accompanying foul and card, allowing one timeline entry to show both without duplicating the incident.
-- The world overview and fixture-events endpoint expose all match events in sequence. The existing expandable match details show the event timeline and fixture statistics; live values are derived from the event stream, then final stored statistics take precedence.
+- The world overview and fixture-events endpoint expose all match events in sequence. Expanded match details show only goal markers and five compact stats: shots, shots on target, corners, fouls and cards. Live values are derived from the event stream, then final stored statistics take precedence. Possession is deliberately omitted: although columns exist in the schema, the simulation does not currently write calculated possession and the database default is 50/50.
 - The browser merges WebSocket events by sequence, requests missed events after reconnect, and retries disconnected sockets with backoff.
 - Total-goal markets cover Over and Under from 0.5 through 5.5 in half increments. Whole-number lines are priced conditional on no push and settle as void on the exact line.
 - Total-corner markets cover Over and Under from 6.5 through 14.5. The expected count is calibrated to the simulator's observed average; this remains a simple Poisson approximation, not a fitted real-world corner model.
@@ -95,7 +95,7 @@ The total-cards settlement convention remains as it was: one unit per yellow and
 
 ## Acceptance checks
 
-- Every persisted/live foul, card and corner event appears once, in sequence, on live and completed match details; reconnect fills only the missing sequence range.
+- Live event catch-up remains sequence-complete, while the match-details UI summarizes those events into stat totals rather than displaying a play-by-play feed.
 - Match event display does not change simulation RNG consumption, scores or the existing deterministic match hashes for the same engine version.
 - Live stats reconcile to event facts; final stats reconcile to stored `match_statistics`.
 - Every configured market line has Over and Under outcomes with valid probabilities/odds, explicit period and settlement definition, and tested win/push/loss cases.

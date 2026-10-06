@@ -24,7 +24,7 @@ import SportsSoccerIcon from "@mui/icons-material/SportsSoccer";
 import SignalWifiStatusbar4BarIcon from "@mui/icons-material/SignalWifiStatusbar4Bar";
 import AuthAction from "@/components/AuthAction";
 import { formatLocalDateTime, useBrowserTimeZone } from "@/lib/time-zone";
-import type { Fixture, MatchEvent, Standing, WorldOverview } from "@/contexts/WorldDataContext";
+import type { Fixture, Standing, WorldOverview } from "@/contexts/WorldDataContext";
 import { useWorldData } from "@/contexts/WorldDataContext";
 import styles from "./MatchCentre.module.css";
 
@@ -32,6 +32,13 @@ export type MatchCentreView = "live" | "fixtures" | "results" | "table";
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 type NavItem = { href: string; label: string; icon: typeof LiveTvIcon };
+type MatchStatRow = {
+  label: string;
+  home: number;
+  away: number;
+  homeCards?: { yellow: number; red: number };
+  awayCards?: { yellow: number; red: number };
+};
 
 const navigation: NavItem[] = [
   { href: "/live", label: "Live", icon: LiveTvIcon },
@@ -41,13 +48,13 @@ const navigation: NavItem[] = [
   { href: "/bets", label: "My bets", icon: ReceiptLongIcon },
 ];
 
-function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
+function MatchRow({ fixture, serverNow, timeZone, detailsEnabled = false }: {
   fixture: Fixture;
   serverNow: number;
   timeZone: string;
-  timelineEnabled?: boolean;
+  detailsEnabled?: boolean;
 }) {
-  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const isLive = fixture.status === "LIVE";
   const isFinished = fixture.status === "FINISHED";
   const startAt = fixture.startedAt ? Date.parse(fixture.startedAt) : Date.parse(fixture.scheduledAt);
@@ -110,77 +117,100 @@ function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
     </div>
   );
 
-  if (!timelineEnabled) return matchRow;
+  if (!detailsEnabled) return matchRow;
 
-  const events = [...(fixture.matchEvents ?? [])]
-    .filter((event) => [
-      "GOAL",
-      "SHOT",
-      "SHOT_ON_TARGET",
-      "CORNER",
-      "FOUL",
-      "YELLOW_CARD",
-      "RED_CARD",
-      "INJURY",
-      "SUBSTITUTION",
-      "HALFTIME",
-      "MATCH_END",
-    ].includes(event.eventType))
-    .sort((a, b) => a.sequence - b.sequence);
+  const goalMarkers = fixture.matchEvents
+    ? fixture.matchEvents
+      .filter((event) => event.eventType === "GOAL")
+      .map((event) => ({ sequence: event.sequence, minute: event.virtualMinute, teamId: event.teamId }))
+    : (fixture.goalEvents ?? []).map((goal) => ({
+      sequence: goal.sequence,
+      minute: goal.minute,
+      teamId: goal.teamId,
+    }));
+  const homeGoals = goalMarkers.filter((goal) => goal.teamId === fixture.homeTeam?.id);
+  const awayGoals = goalMarkers.filter((goal) => goal.teamId === fixture.awayTeam?.id);
   const stats = getDisplayedMatchStatistics(fixture);
-  const timelineId = `timeline-${fixture.id}`;
+  const detailsId = `match-details-${fixture.id}`;
   return (
     <article className={styles.resultMatch}>
       <button
         type="button"
         className={styles.resultMatchToggle}
-        aria-expanded={timelineOpen}
-        aria-controls={timelineId}
-        aria-label={`${homeName} ${fixture.homeScore} to ${fixture.awayScore} ${awayName}. ${timelineOpen ? "Hide" : "Show"} match timeline.`}
-        onClick={() => setTimelineOpen((open) => !open)}
+        aria-expanded={detailsOpen}
+        aria-controls={detailsId}
+        aria-label={`${homeName} ${fixture.homeScore} to ${fixture.awayScore} ${awayName}. ${detailsOpen ? "Hide" : "Show"} match details.`}
+        onClick={() => setDetailsOpen((open) => !open)}
       >
         {matchRow}
-        <ExpandMoreIcon className={timelineOpen ? styles.timelineChevronOpen : styles.timelineChevron} aria-hidden="true" />
+        <ExpandMoreIcon className={detailsOpen ? styles.timelineChevronOpen : styles.timelineChevron} aria-hidden="true" />
       </button>
-      {timelineOpen ? (
-        <div className={styles.goalTimeline} id={timelineId}>
-          {events.length ? (
-            <ol className={styles.goalTimelineEvents} aria-label="Match events">
-              {events.map((event) => {
-                const isHomeEvent = event.teamId === fixture.homeTeam?.id;
-                const isAwayEvent = event.teamId === fixture.awayTeam?.id;
-                const eventTeam = isHomeEvent ? homeName : event.teamId === fixture.awayTeam?.id ? awayName : null;
-                const description = describeMatchEvent(event, eventTeam);
+      {detailsOpen ? (
+        <div className={styles.matchDetails} id={detailsId}>
+          <div className={styles.goalMarkers} aria-label="Goals">
+            <div
+              className={styles.goalMarkersHome}
+              role="list"
+              aria-label={`${homeName} goals`}
+              tabIndex={homeGoals.length > 1 ? 0 : undefined}
+            >
+              {homeGoals.map((goal) => (
+                <span
+                  className={styles.goalMarker}
+                  key={goal.sequence}
+                  role="listitem"
+                  aria-label={`${goal.minute} minute goal`}
+                  title={`${goal.minute}'`}
+                >
+                  <SportsSoccerIcon className={styles.goalMarkerIcon} aria-hidden="true" />
+                  <span>{goal.minute}&apos;</span>
+                </span>
+              ))}
+            </div>
+            <div aria-hidden="true" />
+            <div
+              className={styles.goalMarkersAway}
+              role="list"
+              aria-label={`${awayName} goals`}
+              tabIndex={awayGoals.length > 1 ? 0 : undefined}
+            >
+              {awayGoals.map((goal) => (
+                <span
+                  className={styles.goalMarker}
+                  key={goal.sequence}
+                  role="listitem"
+                  aria-label={`${goal.minute} minute goal`}
+                  title={`${goal.minute}'`}
+                >
+                  <SportsSoccerIcon className={styles.goalMarkerIcon} aria-hidden="true" />
+                  <span>{goal.minute}&apos;</span>
+                </span>
+              ))}
+            </div>
+          </div>
+          <table className={styles.matchStats} aria-label="Match statistics">
+            <tbody>
+              {stats.map((row) => {
+                const total = row.home + row.away;
+                const homeShare = total > 0 ? (row.home / total) * 100 : 50;
                 return (
-                  <li
-                    className={`${styles.timelineEvent} ${isHomeEvent ? styles.homeTimelineEvent : isAwayEvent ? styles.awayTimelineEvent : styles.timelineNeutralEvent}`}
-                    key={event.sequence}
-                    aria-label={`${event.virtualMinute} minute, ${description}`}
-                  >
-                    <span className={styles.timelineMinute}>{event.virtualMinute}&apos;</span>
-                    <MatchEventIcon event={event} />
-                    <span className={styles.timelineDescription}>{description}</span>
-                  </li>
+                  <tr key={row.label}>
+                    <td className={styles.statValue}>
+                      <MatchStatValue row={row} side="home" />
+                    </td>
+                    <th scope="row" className={styles.statCenter}>
+                      <span className={styles.statLabel}>{row.label}</span>
+                      <span className={styles.statMeter} aria-hidden="true">
+                        <span className={styles.statMeterHome} style={{ width: `${homeShare}%` }} />
+                        <span className={styles.statMeterAway} style={{ width: `${100 - homeShare}%` }} />
+                      </span>
+                    </th>
+                    <td className={styles.statValue}>
+                      <MatchStatValue row={row} side="away" />
+                    </td>
+                  </tr>
                 );
               })}
-            </ol>
-          ) : <p className={styles.noTimelineEvents}>No match events have been recorded.</p>}
-          <table className={styles.timelineStats} aria-label="Match statistics">
-            <thead>
-              <tr>
-                <th scope="col">Stats</th>
-                <th scope="col">{fixture.homeTeam?.shortName ?? homeName}</th>
-                <th scope="col">{fixture.awayTeam?.shortName ?? awayName}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stats.rows.map((row) => (
-                <tr key={row.label}>
-                  <th scope="row">{row.label}</th>
-                  <td>{row.home}</td>
-                  <td>{row.away}</td>
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>
@@ -189,28 +219,40 @@ function MatchRow({ fixture, serverNow, timeZone, timelineEnabled = false }: {
   );
 }
 
-function getDisplayedMatchStatistics(fixture: Fixture): { rows: Array<{ label: string; home: number; away: number }> } {
+function getDisplayedMatchStatistics(fixture: Fixture): MatchStatRow[] {
   const finalStats = fixture.matchStatistics;
   if (finalStats) {
-    return {
-      rows: [
-        { label: "Shots", home: finalStats.homeShots, away: finalStats.awayShots },
-        { label: "Corners", home: finalStats.homeCorners, away: finalStats.awayCorners },
-        { label: "Fouls", home: finalStats.homeFouls, away: finalStats.awayFouls },
-        { label: "Yellow cards", home: finalStats.homeYellowCards, away: finalStats.awayYellowCards },
-        { label: "Red cards", home: finalStats.homeRedCards, away: finalStats.awayRedCards },
-      ],
-    };
+    return [
+      { label: "Shots", home: finalStats.homeShots, away: finalStats.awayShots },
+      { label: "On target", home: finalStats.homeShotsOnTarget, away: finalStats.awayShotsOnTarget },
+      { label: "Corners", home: finalStats.homeCorners, away: finalStats.awayCorners },
+      { label: "Fouls", home: finalStats.homeFouls, away: finalStats.awayFouls },
+      {
+        label: "Cards",
+        home: finalStats.homeYellowCards + finalStats.homeRedCards,
+        away: finalStats.awayYellowCards + finalStats.awayRedCards,
+        homeCards: { yellow: finalStats.homeYellowCards, red: finalStats.homeRedCards },
+        awayCards: { yellow: finalStats.awayYellowCards, red: finalStats.awayRedCards },
+      },
+    ];
   }
 
-  const totals = new Map<string, { shots: number; corners: number; fouls: number; yellowCards: number; redCards: number }>();
+  const totals = new Map<string, {
+    shots: number;
+    shotsOnTarget: number;
+    corners: number;
+    fouls: number;
+    yellowCards: number;
+    redCards: number;
+  }>();
   for (const teamId of [fixture.homeTeam?.id, fixture.awayTeam?.id]) {
-    if (teamId) totals.set(teamId, { shots: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 });
+    if (teamId) totals.set(teamId, { shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 });
   }
   for (const event of fixture.matchEvents ?? []) {
     const teamStats = event.teamId ? totals.get(event.teamId) : undefined;
     if (!teamStats) continue;
     if (["GOAL", "SHOT", "SHOT_ON_TARGET"].includes(event.eventType)) teamStats.shots++;
+    if (event.eventType === "GOAL" || event.eventType === "SHOT_ON_TARGET") teamStats.shotsOnTarget++;
     if (event.eventType === "CORNER") teamStats.corners++;
     if (event.eventType === "FOUL" || ["YELLOW_CARD", "RED_CARD"].includes(event.eventType)) teamStats.fouls++;
     if (event.eventType === "YELLOW_CARD" || event.metadata?.secondYellowDismissal === true) teamStats.yellowCards++;
@@ -218,80 +260,36 @@ function getDisplayedMatchStatistics(fixture: Fixture): { rows: Array<{ label: s
   }
   const home = fixture.homeTeam ? totals.get(fixture.homeTeam.id) : undefined;
   const away = fixture.awayTeam ? totals.get(fixture.awayTeam.id) : undefined;
-  return {
-    rows: [
-      { label: "Shots", home: home?.shots ?? 0, away: away?.shots ?? 0 },
-      { label: "Corners", home: home?.corners ?? 0, away: away?.corners ?? 0 },
-      { label: "Fouls", home: home?.fouls ?? 0, away: away?.fouls ?? 0 },
-      { label: "Yellow cards", home: home?.yellowCards ?? 0, away: away?.yellowCards ?? 0 },
-      { label: "Red cards", home: home?.redCards ?? 0, away: away?.redCards ?? 0 },
-    ],
-  };
+  return [
+    { label: "Shots", home: home?.shots ?? 0, away: away?.shots ?? 0 },
+    { label: "On target", home: home?.shotsOnTarget ?? 0, away: away?.shotsOnTarget ?? 0 },
+    { label: "Corners", home: home?.corners ?? 0, away: away?.corners ?? 0 },
+    { label: "Fouls", home: home?.fouls ?? 0, away: away?.fouls ?? 0 },
+    {
+      label: "Cards",
+      home: (home?.yellowCards ?? 0) + (home?.redCards ?? 0),
+      away: (away?.yellowCards ?? 0) + (away?.redCards ?? 0),
+      homeCards: { yellow: home?.yellowCards ?? 0, red: home?.redCards ?? 0 },
+      awayCards: { yellow: away?.yellowCards ?? 0, red: away?.redCards ?? 0 },
+    },
+  ];
 }
 
-function describeMatchEvent(event: MatchEvent, teamName: string | null): string {
-  const team = teamName ?? "Match";
-  const player = event.playerName ? ` · ${event.playerName}` : "";
-  switch (event.eventType) {
-    case "GOAL":
-      return `Goal · ${team}${player}`;
-    case "SHOT":
-      return `Shot · ${team}${player}`;
-    case "SHOT_ON_TARGET":
-      return `Shot on target · ${team}${player}`;
-    case "CORNER":
-      return `Corner · ${team}`;
-    case "FOUL":
-      return `Foul · ${team}${player}`;
-    case "YELLOW_CARD":
-      return `Foul · Yellow card · ${team}${player}`;
-    case "RED_CARD":
-      return `Foul · ${event.metadata?.secondYellowDismissal === true ? "Second yellow, red card" : "Red card"} · ${team}${player}`;
-    case "INJURY":
-      return `Injury · ${team}${player}`;
-    case "SUBSTITUTION":
-      return `Substitution · ${team}${player}`;
-    case "HALFTIME":
-      return "Half-time";
-    case "MATCH_END":
-      return "Full time";
-    default:
-      return event.eventType.replaceAll("_", " ");
-  }
-}
-
-function MatchEventIcon({ event }: { event: MatchEvent }) {
-  if (event.eventType === "GOAL" || event.eventType === "SHOT" || event.eventType === "SHOT_ON_TARGET") {
-    return <SportsSoccerIcon className={styles.timelineEventIcon} aria-hidden="true" />;
-  }
-  if (event.eventType === "CORNER") {
-    return (
-      <svg className={`${styles.timelineEventIcon} ${styles.timelineStrokeIcon} ${styles.timelineCorner}`} viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M5 21V4m1 1h12l-4 4 4 4H6" />
-      </svg>
-    );
-  }
-  if (["FOUL", "YELLOW_CARD", "RED_CARD"].includes(event.eventType)) {
-    return (
-      <span className={styles.timelineIncidentIcons} aria-hidden="true">
-        <svg className={`${styles.timelineEventIcon} ${styles.timelineStrokeIcon} ${styles.timelineWhistle}`} viewBox="0 0 24 24">
-          <path d="M4 13a7 7 0 0 0 13 4l2 1.5 2-2-8-8a7 7 0 0 0-9 4.5Z" />
-          <path d="M11 12a2 2 0 1 1-2.8-2.8M5 6 3.5 4.5" />
-        </svg>
-        {event.eventType === "YELLOW_CARD" || event.metadata?.secondYellowDismissal === true ? (
-          <svg className={`${styles.timelineEventIcon} ${styles.timelineYellowCard}`} viewBox="0 0 24 24">
-            <rect x="6" y="2.5" width="12" height="19" rx="1" />
-          </svg>
-        ) : null}
-        {event.eventType === "RED_CARD" ? (
-          <svg className={`${styles.timelineEventIcon} ${styles.timelineRedCard}`} viewBox="0 0 24 24">
-            <rect x="6" y="2.5" width="12" height="19" rx="1" />
-          </svg>
-        ) : null}
+function MatchStatValue({ row, side }: { row: MatchStatRow; side: "home" | "away" }) {
+  const cards = side === "home" ? row.homeCards : row.awayCards;
+  if (!cards) return <>{row[side]}</>;
+  return (
+    <span className={styles.statCards} aria-label={`${cards.yellow} yellow, ${cards.red} red`}>
+      <span className={styles.statCard}>
+        <span className={`${styles.statCardMark} ${styles.statCardYellow}`} aria-hidden="true" />
+        {cards.yellow}
       </span>
-    );
-  }
-  return <span className={styles.timelineEventMarker} aria-hidden="true">{event.eventType === "HALFTIME" ? "HT" : "FT"}</span>;
+      <span className={styles.statCard}>
+        <span className={`${styles.statCardMark} ${styles.statCardRed}`} aria-hidden="true" />
+        {cards.red}
+      </span>
+    </span>
+  );
 }
 
 function MatchSkeletonList({ count = 5 }: { count?: number }) {
@@ -431,7 +429,7 @@ function ResultsList({ fixtures, serverNow, loading, timeZone }: { fixtures: Fix
   return (
     <div className={styles.matchList}>
       {fixtures.map((fixture) => (
-        <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} timelineEnabled />
+        <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} detailsEnabled />
       ))}
     </div>
   );
@@ -660,7 +658,7 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
               <span className={styles.count}>{liveFixtures.length ? `${liveFixtures.length} live` : "No live matches"}</span>
             </div>
             <div className={styles.matchList}>
-              {liveFixtures.map((fixture) => <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} timelineEnabled />)}
+              {liveFixtures.map((fixture) => <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} detailsEnabled />)}
               {overview && liveFixtures.length === 0 ? (
                 <p className={styles.empty}>No live fixtures right now. <Link href="/fixtures">View fixtures</Link></p>
               ) : null}

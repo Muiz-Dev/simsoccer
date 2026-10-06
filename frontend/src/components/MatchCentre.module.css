@@ -369,145 +369,154 @@
   transform: translateY(-50%) rotate(180deg);
 }
 
-.goalTimeline {
+.matchDetails {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
   column-gap: 12px;
-  padding: 2px 34px 12px 0;
+  padding: 3px 34px 8px 0;
   border-top: 1px solid #e7ebe8;
   background: #f8faf8;
 }
 
-.goalTimelineEvents {
-  display: grid;
+.goalMarkers {
   grid-column: 2;
-  grid-template-columns: minmax(0, 1fr);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.timelineEvent {
   display: grid;
-  grid-template-columns: 34px 30px minmax(0, 1fr);
-  min-height: 36px;
+  grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  padding: 3px 8px;
-  border-bottom: 1px solid #e7ebe8;
-  font-size: 12px;
+  gap: 10px;
+  height: 30px;
 }
 
-.homeTimelineEvent {
-  border-left: 2px solid var(--pitch);
-}
-
-.awayTimelineEvent {
-  border-left: 2px solid #a7322b;
-}
-
-.timelineNeutralEvent {
-  border-left: 2px solid #aeb8b1;
-}
-
-.timelineMinute {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.timelineEventIcon {
-  width: 17px;
-  height: 17px;
-  color: var(--pitch);
-}
-
-.timelineStrokeIcon path {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.8;
-}
-
-.timelineIncidentIcons {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.timelineYellowCard {
-  color: #8a6800;
-}
-
-.timelineYellowCard rect {
-  fill: #f2c94c;
-  stroke: currentColor;
-  stroke-width: 1.2;
-}
-
-.timelineRedCard {
-  color: #8f211d;
-}
-
-.timelineRedCard rect {
-  fill: #c43b32;
-  stroke: currentColor;
-  stroke-width: 1.2;
-}
-
-.timelineCorner {
-  color: var(--pitch);
-}
-
-.timelineDescription {
+.goalMarkersHome,
+.goalMarkersAway {
+  display: flex;
   min-width: 0;
-  color: var(--ink);
-  overflow-wrap: anywhere;
+  align-items: center;
+  gap: 9px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  white-space: nowrap;
 }
 
-.timelineEventMarker {
+.goalMarkersHome::-webkit-scrollbar,
+.goalMarkersAway::-webkit-scrollbar {
+  display: none;
+}
+
+.goalMarkersHome:focus-visible,
+.goalMarkersAway:focus-visible {
+outline: 2px solid var(--pitch);
+outline-offset: -2px;
+}
+
+.goalMarkersHome {
+  justify-content: flex-end;
+}
+
+.goalMarkersAway {
+  justify-content: flex-start;
+}
+
+.goalMarker {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 700;
-  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
-.timelineStats {
+.goalMarkerIcon {
+  width: 14px;
+  height: 14px;
+  color: var(--pitch);
+}
+
+.matchStats {
   grid-column: 2;
   width: 100%;
-  margin-top: 8px;
+  margin: 0;
   border-collapse: collapse;
+  table-layout: fixed;
   color: var(--ink);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
-.timelineStats th,
-.timelineStats td {
-  padding: 4px 8px;
-  border-bottom: 1px solid #e7ebe8;
+.matchStats tr {
+  height: 27px;
+}
+
+.matchStats th,
+.matchStats td {
+  padding: 2px 4px;
   text-align: center;
 }
 
-.timelineStats th:first-child {
-  color: var(--muted);
-  font-weight: 500;
-  text-align: left;
+.statValue {
+  width: 25%;
+  font-weight: 650;
 }
 
-.timelineStats thead th {
+.statCenter {
+  width: 50%;
+  font-weight: 500;
+}
+
+.statLabel {
+  display: block;
   color: var(--muted);
   font-size: 10px;
-  font-weight: 600;
+  line-height: 1.1;
 }
 
-.noTimelineEvents {
-  grid-column: 2;
-  margin: 0;
-  padding: 9px 0;
-  color: var(--muted);
-  font-size: 12px;
+.statMeter {
+  position: relative;
+  display: flex;
+  width: min(100%, 76px);
+  height: 3px;
+  margin: 3px auto 0;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #e2e7e3;
+}
+
+.statMeterHome {
+  height: 100%;
+  background: var(--pitch);
+}
+
+.statMeterAway {
+  height: 100%;
+  background: #a7322b;
+}
+
+.statCards {
+  display: inline-flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.statCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.statCardMark {
+  width: 6px;
+  height: 9px;
+  border-radius: 1px;
+}
+
+.statCardYellow {
+  background: #efc344;
+}
+
+.statCardRed {
+  background: #bd3830;
 }
 
 .goalTicker {
@@ -759,9 +768,14 @@
       font-size: 13px;
     }
 
-    .goalTimeline {
+    .matchDetails {
       grid-template-columns: 84px minmax(0, 1fr);
       column-gap: 8px;
+    }
+
+    .goalMarkers {
+      grid-template-columns: minmax(0, 1fr) 42px minmax(0, 1fr);
+      gap: 5px;
     }
 
     .score {
@@ -818,9 +832,14 @@
       font-size: 10px;
     }
 
-    .goalTimeline {
+    .matchDetails {
       grid-template-columns: 61px minmax(0, 1fr);
       column-gap: 5px;
+    }
+
+    .goalMarkers {
+      grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+      gap: 3px;
     }
 
     .matchLine {
@@ -858,8 +877,12 @@
       grid-template-columns: 55px minmax(0, 1fr);
     }
 
-    .goalTimeline {
+    .matchDetails {
       grid-template-columns: 55px minmax(0, 1fr);
+    }
+
+    .goalMarkers {
+      grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
     }
 
     .matchLine {
