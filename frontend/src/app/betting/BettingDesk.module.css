@@ -1437,6 +1437,7 @@
   .marketHeading {
     min-height: 56px;
     padding-inline: 9px;
+    border-bottom-color: #cdd7cf;
   }
 
   .marketHeading h2 {
@@ -1617,10 +1618,10 @@
     inset: auto 0 0;
     display: none;
     width: 100%;
-    max-height: min(76svh, 680px);
+    max-height: min(82svh, 720px);
     overflow: auto;
-    border-top: 2px solid #16864f;
-    border-radius: 8px 8px 0 0;
+    border-top: 3px solid #16864f;
+    border-radius: 12px 12px 0 0;
     box-shadow: 0 -8px 24px rgb(10 18 13 / 20%);
   }
 
@@ -1680,7 +1681,7 @@
     bottom: 0;
     left: 0;
     display: block;
-    padding: 7px 12px calc(7px + env(safe-area-inset-bottom));
+    padding: 6px 14px calc(6px + env(safe-area-inset-bottom));
     border-top: 1px solid #424943;
     background: var(--desk-slip);
     color: #f5f7f5;
@@ -1690,7 +1691,7 @@
   .mobileSlipBar button {
     display: grid;
     width: 100%;
-    min-height: 48px;
+    min-height: 52px;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
     gap: 10px;
@@ -1731,7 +1732,7 @@
 
   .mobileSlipAction {
     min-width: 58px;
-    padding: 9px 10px;
+    padding: 10px 12px;
     background: var(--desk-pitch);
     color: white;
     font-size: 12px;
@@ -1758,4 +1759,267 @@
     width: 100%;
     max-height: 86svh;
   }
+}
+
+/* ─── Bet Success Dialog ────────────────────────────────────────────────────── */
+
+.betSuccessDialog {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  padding: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--desk-ink);
+}
+
+.betSuccessDialog::backdrop {
+  background: rgb(10 18 13 / 68%);
+  backdrop-filter: blur(3px);
+}
+
+.betSuccessDialog > * {
+  /* inner layout handled below */
+}
+
+/* Dialog inner panel — we wrap the dialog content by styling the dialog itself as the card */
+.betSuccessDialog {
+  /* Override the above for the card itself */
+  display: block;
+  inset: auto;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  max-width: 100%;
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 32px 28px 28px;
+  border: 0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgb(10 22 15 / 22%), 0 4px 12px rgb(10 22 15 / 10%);
+  text-align: center;
+}
+
+.betSuccessDialog[open] {
+  animation: betSuccessIn 0.28s cubic-bezier(0.34, 1.36, 0.64, 1) both;
+}
+
+@keyframes betSuccessIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.betSuccessIcon {
+  display: block;
+  width: 56px !important;
+  height: 56px !important;
+  margin: 0 auto 16px;
+  color: #16864f;
+  font-size: 56px !important;
+}
+
+.betSuccessDialog h2 {
+  margin: 0 0 6px;
+  color: #0e5233;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.betSuccessDialog > p {
+  margin: 0 0 20px;
+  color: #5a6860;
+  font-size: 14px;
+}
+
+.betSuccessDialog dl {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 20px;
+  overflow: hidden;
+  border: 1px solid #e2ebe4;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.betSuccessDialog dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #f9fbf9;
+}
+
+.betSuccessDialog dl > div:first-child {
+  background: #f3f8f4;
+}
+
+.betSuccessDialog dt {
+  color: #6b7a6e;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.betSuccessDialog dd {
+  margin: 0;
+  color: #1a2420;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+
+.betSuccessDialog > a {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 7px;
+  background: #16864f;
+  color: white;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.betSuccessDialog > a:hover {
+  background: #0f6d40;
+}
+
+.betSuccessDialog > button {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 1px solid #cdd8d0;
+  border-radius: 7px;
+  background: transparent;
+  color: #4a5850;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.betSuccessDialog > button:hover {
+  border-color: #16864f;
+  background: #f3f8f4;
+  color: #0e5233;
+}
+
+@media (max-width: 480px) {
+  .betSuccessDialog {
+    padding: 24px 18px 20px;
+    border-radius: 14px 14px 0 0;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .betSuccessDialog[open] {
+    animation: betSuccessInMobile 0.3s cubic-bezier(0.34, 1.12, 0.64, 1) both;
+  }
+
+  @keyframes betSuccessInMobile {
+    from {
+      opacity: 0;
+      transform: translateY(60px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@media (max-width: 390px) {
+  .titleBar h1 {
+    font-size: 22px;
+  }
+
+  .cutoffLabel {
+    max-width: 118px;
+    line-height: 1.25;
+  }
+
+  .stakeActionRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .stakeActionRow .stakeField input {
+    min-height: 42px;
+    font-size: 16px;
+  }
+
+  .stakeActionRow .placeBetAction {
+    min-height: 46px;
+  }
+
+  .stakeFeedback {
+    font-size: 12px;
+  }
+
+  .slipTopline {
+    padding-inline: 12px;
+  }
+
+  .slipContent {
+    padding-inline: 10px;
+  }
+}
+
+/* ─── Stake input enhancements ──────────────────────────────────────────────── */
+
+.stakeField input:focus {
+  outline: none;
+  border-color: #16864f;
+  border-width: 1px;
+  box-shadow: 0 0 0 2px rgb(22 134 79 / 15%);
+}
+
+.stakeField input[aria-invalid="true"] {
+  border-color: #c0442c;
+  border-width: 1px;
+  box-shadow: 0 0 0 2px rgb(192 68 44 / 13%);
+}
+
+.stakeFeedback {
+  margin: 5px 0 0;
+  color: #9de3b7;
+  font-size: 11px;
+  line-height: 1.35;
+  min-height: 15px;
+  transition: color 0.15s;
+}
+
+.stakeFeedback[data-invalid="true"] {
+  color: #f0aa83;
 }

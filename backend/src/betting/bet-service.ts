@@ -19,6 +19,7 @@ import { getRoundCutoffAt, normalizeTimestamp } from './round-market-policy';
 import { createTicketAccessCode, hashTicketAccessCode, isTicketAccessCode } from './ticket-access';
 
 const MAX_BET_SELECTIONS = 20;
+const MINIMUM_BET_STAKE = new Decimal(100);
 
 export interface PlaceBetSelectionInput {
   fixtureId: string;
@@ -55,6 +56,9 @@ export async function placePlayMoneyBet(input: PlaceBetInput) {
   }
   if (!stakeAmount.isFinite() || stakeAmount.lessThanOrEqualTo(0) || stakeAmount.decimalPlaces() > 2) {
     throw new Error('Stake must be a valid amount greater than zero with at most two decimal places.');
+  }
+  if (stakeAmount.lessThan(MINIMUM_BET_STAKE)) {
+    throw new Error('Minimum stake is 100 credits.');
   }
   if (!idempotencyKey || idempotencyKey.length > 200) {
     throw new Error('A valid idempotency key is required.');

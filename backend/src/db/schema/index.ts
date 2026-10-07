@@ -335,7 +335,7 @@ export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id).unique(),
   currency: text('currency').notNull().default('VIRTUAL'),
-  balance: numeric('balance').notNull().default('10000.00'),
+  balance: numeric('balance').notNull().default('3000.00'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

@@ -74,9 +74,9 @@ export async function seedDatabase(targetSeasonName: string = 'Season 1') {
     await db.insert(wallets).values({
       userId: systemUser.id,
       currency: 'VIRTUAL',
-      balance: '10000.00',
+      balance: '3000.00',
     });
-    console.log('👤 Created demo user demo@simsoccer.com with 10,000 virtual credits wallet.');
+    console.log('👤 Created demo user demo@simsoccer.com with 3,000 virtual credits wallet.');
   }
 
   for (const [leagueSlug, compData] of Object.entries(seasonCompetitions)) {

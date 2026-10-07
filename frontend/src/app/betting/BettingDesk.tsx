@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import CloseIcon from "@mui/icons-material/Close";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -124,13 +125,14 @@ type FixtureStatistics = {
 };
 
 type QuickMarket = { marketType: string; outcomeCode: string; label: string };
-type AcceptedBet = { id: string; ticketCode: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
+type AcceptedBet = { id: string; stake: string; totalOdds: string; potentialPayout: string; status: string };
 type AccountBalanceResponse = {
   account: {
     wallet: { balance: string; currency: string } | null;
   };
 };
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+const MINIMUM_BET_STAKE = 100;
 const leagueLogoByName: Record<string, string> = {
   "la liga": "/leagues/la-liga.svg",
   laliga: "/leagues/la-liga.svg",
@@ -248,7 +250,7 @@ export default function BettingDesk() {
   const [round, setRound] = useState<number | null>(null);
   const [selectedLeagueId, setSelectedLeagueId] = useState("");
   const [selections, setSelections] = useState<Selection[]>([]);
-  const [slipView, setSlipView] = useState<"slip" | "booking" | "ticket">("slip");
+  const [slipView, setSlipView] = useState<"slip" | "booking">("slip");
   const [expandedFixtureId, setExpandedFixtureId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<"markets" | "statistics">("markets");
   const [fixtureStatistics, setFixtureStatistics] = useState<FixtureStatistics | null>(null);
@@ -266,8 +268,16 @@ export default function BettingDesk() {
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [walletBalanceUnavailable, setWalletBalanceUnavailable] = useState(false);
   const [walletRefresh, setWalletRefresh] = useState(0);
+  const betSuccessDialogRef = useRef<HTMLDialogElement>(null);
   const idempotencyKey = useRef<string | null>(null);
   const ticketCode = useRef<string | null>(null);
+
+  useEffect(() => {
+    const dialog = betSuccessDialogRef.current;
+    if (!dialog) return;
+    if (acceptedBet && !dialog.open) dialog.showModal();
+    if (!acceptedBet && dialog.open) dialog.close();
+  }, [acceptedBet]);
 
   useEffect(() => {
     if (!mobileSlipOpen) return;
@@ -429,6 +439,34 @@ export default function BettingDesk() {
   const resolvedSelections = selections.map(resolveSelection);
   const totalOdds = resolvedSelections.reduce((total, selection) => total * Number(selection.currentOdds), 1);
   const roundedTotalOdds = resolvedSelections.length ? totalOdds.toFixed(2) : "0.00";
+  const stakeAmount = stake.trim() ? Number(stake) : Number.NaN;
+  const stakeHasValidFormat = /^\d+(?:\.\d{0,2})?$/.test(stake.trim());
+  const availableBalance = walletBalance === null ? Number.NaN : Number(walletBalance);
+  const balanceReady = !walletBalanceUnavailable && Number.isFinite(availableBalance);
+  const stakeWithinBalance = balanceReady && stakeAmount <= availableBalance;
+  const validStake = Number.isFinite(stakeAmount)
+    && stakeHasValidFormat
+    && stakeAmount >= MINIMUM_BET_STAKE
+    && stakeWithinBalance;
+  const stakeInvalid = Boolean(stake.trim()) && (
+    !Number.isFinite(stakeAmount)
+    || !stakeHasValidFormat
+    || stakeAmount < MINIMUM_BET_STAKE
+    || (balanceReady && !stakeWithinBalance)
+  );
+  const stakeFeedback = !stake.trim()
+    ? `Minimum stake: ${MINIMUM_BET_STAKE} credits.`
+    : !Number.isFinite(stakeAmount) || !stakeHasValidFormat
+      ? "Enter a valid amount with up to two decimal places."
+      : stakeAmount < MINIMUM_BET_STAKE
+        ? `The minimum stake is ${MINIMUM_BET_STAKE} credits.`
+        : walletBalanceUnavailable
+          ? "Your balance is unavailable. Refresh before placing a bet."
+          : walletBalance === null
+            ? "Loading your available balance…"
+            : !stakeWithinBalance
+              ? `Your available balance is ${formatCreditBalance(walletBalance) ?? "unavailable"} credits.`
+              : `${formatCreditBalance((availableBalance - stakeAmount).toFixed(2)) ?? "0.00"} credits will remain.`;
   const potentialReturn = Number.isFinite(Number(stake)) && Number(stake) > 0
     ? (Number(stake) * Number(roundedTotalOdds)).toFixed(2)
     : "0.00";
@@ -487,8 +525,7 @@ export default function BettingDesk() {
       return;
     }
 
-    const stakeAmount = Number(stake);
-    if (!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(stakeAmount) || stakeAmount <= 0) return;
+    if (!resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !validStake) return;
     setError("");
     setMessage("");
     setPlacingBet(true);
@@ -531,8 +568,8 @@ export default function BettingDesk() {
       setSelections([]);
       setStake("");
       setSavedCode("");
-      setMessage("Bet accepted.");
-      setSlipView("ticket");
+      setMessage("");
+      setSlipView("slip");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Betting is temporarily unavailable. Try again.");
     } finally {
@@ -597,16 +634,6 @@ export default function BettingDesk() {
       setMessage("Booking code copied.");
     } catch {
       setMessage("Select and copy the booking code.");
-    }
-  }
-
-  async function copyTicketCode() {
-    if (!acceptedBet?.ticketCode) return;
-    try {
-      await navigator.clipboard.writeText(acceptedBet.ticketCode);
-      setMessage("Ticket code copied.");
-    } catch {
-      setError("Copy failed. Select the ticket code and copy it manually.");
     }
   }
 
@@ -1000,9 +1027,9 @@ export default function BettingDesk() {
                     <div className={styles.stakeActionRow}>
                       <label className={styles.stakeField}>
                         Stake
-                        <span><input type="number" min="0.01" step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="0.00" /><small>credits</small></span>
+                        <span><input type="number" min={MINIMUM_BET_STAKE} max={balanceReady ? availableBalance : undefined} step="0.01" inputMode="decimal" value={stake} onChange={(event) => setStake(event.target.value)} placeholder="100.00" aria-invalid={stakeInvalid} aria-describedby="stake-feedback" /><small>credits</small></span>
                       </label>
-                      <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !Number.isFinite(Number(stake)) || Number(stake) <= 0} onClick={() => void placeBet()} aria-busy={placingBet}>
+                      <button className={styles.placeBetAction} type="button" disabled={placingBet || !resolvedSelections.length || hasUnavailableLeg || hasChangedPrice || !validStake} onClick={() => void placeBet()} aria-busy={placingBet}>
                         {placingBet ? (
                           <span className={styles.placeBetProgress}>
                             <span className={styles.placeBetSpinner} aria-hidden="true" />
@@ -1011,6 +1038,7 @@ export default function BettingDesk() {
                         ) : "Place bet"}
                       </button>
                     </div>
+                    <p id="stake-feedback" className={styles.stakeFeedback} data-invalid={stakeInvalid} aria-live="polite">{stakeFeedback}</p>
                     <div className={styles.oddsSummary}>
                       <span>Potential return</span>
                       <strong>{potentialReturn}</strong>
@@ -1052,26 +1080,28 @@ export default function BettingDesk() {
                 {message ? <p className={styles.slipMessage} role="status">{message}</p> : null}
                 {error ? <p className={styles.slipError} role="alert">{error}</p> : null}
               </>
-            ) : (
-              <div className={styles.acceptedTicket}>
-                <div className={styles.ticketReference}>
-                  <span>Ticket code · keep it private</span>
-                  <strong>{acceptedBet?.ticketCode ?? "—"}</strong>
-                  <button type="button" aria-label="Copy ticket code" title="Copy ticket code" onClick={() => void copyTicketCode()}>
-                    <ContentCopyIcon fontSize="small" />
-                  </button>
-                </div>
-                <dl>
-                  <div><dt>Stake</dt><dd>{acceptedBet?.stake ?? "0.00"}</dd></div>
-                  <div><dt>Combined odds</dt><dd>{acceptedBet?.totalOdds ?? "0.00"}</dd></div>
-                  <div><dt>Potential return</dt><dd>{acceptedBet?.potentialPayout ?? "0.00"}</dd></div>
-                </dl>
-                <Link href={`/bets#ticket-${acceptedBet?.id ?? ""}`}>View this ticket</Link>
-              </div>
-            )}
+            ) : null}
           </div>
         </aside>
       </div>
+
+      <dialog
+        ref={betSuccessDialogRef}
+        className={styles.betSuccessDialog}
+        aria-labelledby="bet-success-title"
+        onClose={() => setAcceptedBet(null)}
+      >
+        <CheckCircleRoundedIcon className={styles.betSuccessIcon} aria-hidden="true" />
+        <h2 id="bet-success-title">Bet placed</h2>
+        <p>Your selection is in My Bets.</p>
+        <dl>
+          <div><dt>Stake</dt><dd>{acceptedBet?.stake ?? "0.00"} credits</dd></div>
+          <div><dt>Combined odds</dt><dd>{acceptedBet?.totalOdds ?? "0.00"}</dd></div>
+          <div><dt>Potential return</dt><dd>{acceptedBet?.potentialPayout ?? "0.00"} credits</dd></div>
+        </dl>
+        <Link href={`/bets#ticket-${acceptedBet?.id ?? ""}`} onClick={() => setAcceptedBet(null)}>View this bet in My Bets</Link>
+        <button type="button" onClick={() => setAcceptedBet(null)}>Continue browsing</button>
+      </dialog>
 
       {expandedFixture ? (
         <div className={styles.modalBackdrop} role="presentation" onMouseDown={(event) => {

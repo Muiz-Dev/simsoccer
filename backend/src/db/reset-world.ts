@@ -21,7 +21,7 @@ async function resetWorld(): Promise<void> {
   const databaseName = decodeURIComponent(target.pathname.replace(/^\//, ''));
   console.log(`Target database: ${target.hostname}/${databaseName}`);
   console.log('This removes all league/season/match/market/bet data and queue jobs.');
-  console.log('It preserves user accounts and admin credentials/sessions/audit history. Existing virtual wallets reset to 10,000.');
+  console.log('It preserves user accounts and admin credentials/sessions/audit history. Existing virtual wallets reset to 3,000.');
   console.log('Take a database backup first. Stop the PM2 runtime before continuing.');
 
   const terminal = createInterface({ input: stdin, output: stdout });
@@ -39,7 +39,7 @@ async function resetWorld(): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.execute(sql`TRUNCATE TABLE public.leagues, public.bets, public.wallet_transactions RESTART IDENTITY CASCADE`);
     const resetWallets = await tx.update(wallets)
-      .set({ balance: '10000.00', updatedAt: new Date() })
+      .set({ balance: '3000.00', updatedAt: new Date() })
       .returning({ id: wallets.id });
     console.log(`Cleared world and betting data; reset ${resetWallets.length} virtual wallets.`);
   });

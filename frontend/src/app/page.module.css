@@ -125,6 +125,199 @@
   font-size: 13px;
 }
 
+/* ─── Market / CTA guide section ───────────────────────────────────────────── */
+
+.marketGuide {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  align-items: center;
+  gap: 32px;
+  margin: 28px 0;
+  padding: 28px 32px;
+  border: 1px solid #315b46;
+  border-left: 5px solid #d3a84c;
+  border-radius: 4px;
+  background: #123d2c;
+  color: #f4f7f2;
+}
+
+.guideCopy {
+  display: grid;
+  gap: 10px;
+}
+
+.guideEyebrow {
+  margin: 0;
+  color: #c9d8c9;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.guideCopy h2 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.guideCopy > p {
+  margin: 0;
+  color: #d0ddd2;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 42ch;
+}
+
+.guideActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.guidePrimaryAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 22px;
+  border-radius: 3px;
+  background: #d9b254;
+  color: #17271e;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.14s, color 0.14s;
+  white-space: nowrap;
+}
+
+.guidePrimaryAction:hover {
+  background: #edc96e;
+}
+
+.guideSecondaryAction {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 20px;
+  border: 1px solid #7c9b85;
+  border-radius: 3px;
+  background: transparent;
+  color: #f1f5ef;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 0.14s, background 0.14s;
+  white-space: nowrap;
+}
+
+.guideSecondaryAction:hover {
+  border-color: #d9b254;
+  background: #1c5038;
+  color: #ffffff;
+}
+
+.guideNote {
+  display: block;
+  color: #bfd0c2;
+  font-size: 12px;
+}
+
+.guideMatch {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid #456b55;
+  border-radius: 3px;
+  background: #1a4934;
+}
+
+.guideMatchMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #c2d0c5;
+  font-size: 11px;
+}
+
+.guideMatchMeta span {
+  font-weight: 600;
+}
+
+.guideMatchMeta time {
+  font-variant-numeric: tabular-nums;
+}
+
+.guideScoreboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.guideScoreboard span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f7f3;
+}
+
+.guideScoreboard span:last-child {
+  text-align: right;
+}
+
+.guideScoreboard strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.guideScoreboard i {
+  color: #a9c0ae;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.guideMatchLink {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #668773;
+  border-radius: 3px;
+  background: #123d2c;
+  color: #e4c878;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.guideMatchLink:hover {
+  background: #24583e;
+  border-color: #d9b254;
+}
+
+.guideEmpty {
+  margin: 0;
+  padding: 12px 0;
+  color: #c2d0c5;
+  font-size: 12px;
+  text-align: center;
+}
+
 .contentGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.24fr) minmax(340px, 0.76fr);
@@ -248,6 +441,11 @@
   color: var(--muted);
 }
 
+.kickoff {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .nextRound {
   margin-top: 30px;
 }
@@ -337,6 +535,16 @@
   .tableSection {
     padding-left: 20px;
   }
+
+  .marketGuide {
+    grid-template-columns: 1fr;
+    gap: 20px;
+    padding: 22px 24px;
+  }
+
+  .guideMatch {
+    order: -1;
+  }
 }
 
 @media (max-width: 700px) {
@@ -356,6 +564,44 @@
 
   .masthead h1 {
     font-size: 29px;
+  }
+
+  .marketGuide {
+    margin: 18px 0;
+    padding: 16px 14px;
+    border-left-width: 4px;
+    gap: 15px;
+  }
+
+  .guideCopy h2 {
+    max-width: 18ch;
+    font-size: 22px;
+    line-height: 1.12;
+  }
+
+  .guideActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .guidePrimaryAction,
+  .guideSecondaryAction {
+    justify-content: center;
+    min-height: 48px;
+    font-size: 14px;
+  }
+
+  .guideMatch {
+    gap: 10px;
+    padding: 14px 12px 12px;
+  }
+
+  .guideScoreboard strong {
+    font-size: 22px;
+  }
+
+  .guideScoreboard span {
+    font-size: 12px;
   }
 
   .contentGrid {

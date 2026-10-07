@@ -153,6 +153,10 @@ export default function Home() {
   }, [refreshSequence]);
 
   const selectedLeague = overview?.leagues.find((item) => item.league.id === selectedLeagueId) ?? overview?.leagues[0];
+  const featuredFixture = selectedLeague?.roundFixtures.find((fixture) => fixture.status === "LIVE")
+    ?? selectedLeague?.roundFixtures.find((fixture) => fixture.status === "SCHEDULED")
+    ?? selectedLeague?.nextRoundFixtures[0]
+    ?? selectedLeague?.roundFixtures[0];
   const liveFixtureKey = (selectedLeague?.roundFixtures ?? [])
     .filter((fixture) => fixture.status === "LIVE")
     .map((fixture) => fixture.id)
@@ -277,6 +281,37 @@ export default function Home() {
           </Tabs>
         ) : null}
       </nav>
+
+      <section className={styles.marketGuide} aria-labelledby="market-guide-title" data-reveal>
+        <div className={styles.guideCopy}>
+          <p className={styles.guideEyebrow}>Every round moves</p>
+          <h2 id="market-guide-title">Read the fixtures. Back your judgement.</h2>
+          <p>
+            Follow live scores, compare the markets and test your match read with virtual credits.
+          </p>
+          <div className={styles.guideActions}>
+            <Link className={styles.guidePrimaryAction} href="/betting">Explore betting markets</Link>
+            <Link className={styles.guideSecondaryAction} href="/auth">Create an account</Link>
+          </div>
+          <span className={styles.guideNote}>New accounts start with 3,000 virtual credits.</span>
+        </div>
+        <div className={styles.guideMatch} aria-label="A fixture from the SimSoccer world">
+          <div className={styles.guideMatchMeta}>
+            <span>{featuredFixture?.status === "LIVE" ? "Live now" : "From the fixture list"}</span>
+            {featuredFixture ? <time dateTime={featuredFixture.scheduledAt}>{formatLocalTime(featuredFixture.scheduledAt, timeZone)}</time> : null}
+          </div>
+          {featuredFixture ? (
+            <div className={styles.guideScoreboard}>
+              <span>{featuredFixture.homeTeam?.shortName ?? featuredFixture.homeTeam?.name ?? "Home"}</span>
+              <strong>{featuredFixture.homeScore} <i>:</i> {featuredFixture.awayScore}</strong>
+              <span>{featuredFixture.awayTeam?.shortName ?? featuredFixture.awayTeam?.name ?? "Away"}</span>
+            </div>
+          ) : (
+            <p className={styles.guideEmpty}>Fixtures and markets appear here as the world updates.</p>
+          )}
+          <Link href="/betting" className={styles.guideMatchLink}>See the available markets</Link>
+        </div>
+      </section>
 
       {loadError ? (
         <p className={styles.connectionError} role="alert">

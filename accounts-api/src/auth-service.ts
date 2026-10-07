@@ -13,6 +13,7 @@ import {
 const passwordOptions = { type: argon2.argon2id, memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 const challengeLifetime = 10 * 60 * 1000;
 const sessionLifetime = 30 * 24 * 60 * 60 * 1000;
+const signupCreditBonus = '3000.00';
 const passwordWorkLimit = 2;
 const passwordWorkQueueLimit = 16;
 let passwordWorkActive = 0;
@@ -292,10 +293,23 @@ export async function createSession(
     if (!activeUser) throw new Error('Account is unavailable for sign-in.');
     await tx`DELETE FROM auth_sessions WHERE expires_at < now() - interval '30 days'`;
     await tx`DELETE FROM auth_devices WHERE revoked_at < now() - interval '30 days' OR last_seen_at < now() - interval '180 days'`;
-    await tx`
-      INSERT INTO wallets (user_id, currency) VALUES (${userId}, 'VIRTUAL')
+    const [createdWallet] = await tx<{ id: string }[]>`
+      INSERT INTO wallets (user_id, currency, balance)
+      VALUES (${userId}, 'VIRTUAL', ${signupCreditBonus})
       ON CONFLICT (user_id) DO NOTHING
+      RETURNING id
     `;
+    if (createdWallet) {
+      await tx`
+        INSERT INTO wallet_transactions (
+          wallet_id, type, amount, balance_before, balance_after, reference_type, reference_id, idempotency_key
+        )
+        VALUES (
+          ${createdWallet.id}, 'INITIAL_CREDIT', ${signupCreditBonus}, '0.00', ${signupCreditBonus},
+          'SIGNUP_BONUS', ${userId}, ${`signup-bonus:${userId}`}
+        )
+      `;
+    }
     const [device] = await tx<{ id: string }[]>`
       INSERT INTO auth_devices (user_id, device_token_hash)
       VALUES (${userId}, ${deviceHash})

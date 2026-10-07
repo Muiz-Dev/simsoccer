@@ -1153,6 +1153,7 @@ export function createApp() {
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       const safeMessage = message === 'Wallet balance is insufficient.'
+        || message === 'Minimum stake is 100 credits.'
         ? message
         : message === 'Betting for this round is closed.' || message === 'Fixture is outside the current betting rounds.'
           ? message
