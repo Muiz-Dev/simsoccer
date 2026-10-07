@@ -39,6 +39,15 @@ function getLeagueLogo(name: string): string | null {
   return leagueLogoByName[name.trim().toLocaleLowerCase()] ?? null;
 }
 
+function formatKickoffCountdown(secondsRemaining: number): string {
+  const hours = Math.floor(secondsRemaining / 3600);
+  const minutes = Math.floor((secondsRemaining % 3600) / 60);
+  const seconds = secondsRemaining % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 type NavItem = { href: string; label: string; icon: typeof LiveTvIcon };
 type MatchStatRow = {
   label: string;
@@ -159,7 +168,6 @@ function MatchRow({ fixture, serverNow, timeZone, detailsEnabled = false }: {
               className={styles.goalMarkersHome}
               role="list"
               aria-label={`${homeName} goals`}
-              tabIndex={homeGoals.length > 1 ? 0 : undefined}
             >
               {homeGoals.map((goal) => (
                 <span
@@ -179,7 +187,6 @@ function MatchRow({ fixture, serverNow, timeZone, detailsEnabled = false }: {
               className={styles.goalMarkersAway}
               role="list"
               aria-label={`${awayName} goals`}
-              tabIndex={awayGoals.length > 1 ? 0 : undefined}
             >
               {awayGoals.map((goal) => (
                 <span
@@ -610,6 +617,11 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
   const nextRoundUpcoming = (selectedLeague?.nextRoundFixtures ?? []).filter((fixture) => fixture.status === "SCHEDULED");
   const upcomingFixtures = (currentRoundUpcoming.length ? currentRoundUpcoming : nextRoundUpcoming)
     .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
+  const nextFixture = upcomingFixtures[0] ?? null;
+  const nextKickoffAt = nextFixture ? Date.parse(nextFixture.scheduledAt) : Number.NaN;
+  const kickoffCountdownSeconds = serverNow > 0 && Number.isFinite(nextKickoffAt)
+    ? Math.max(0, Math.ceil((nextKickoffAt - serverNow) / 1000))
+    : null;
   const fixturesRound = upcomingFixtures[0]?.round ?? selectedLeague?.season?.currentRound ?? 0;
   const displayedRound = view === "fixtures" ? fixturesRound : selectedLeague?.season?.currentRound ?? 0;
   const resultsRound = requestedResultRound;
@@ -768,12 +780,23 @@ export default function MatchCentre({ view }: { view: MatchCentreView }) {
           <>
             <div className={styles.sectionHeading} data-enter>
               <h2>{selectedLeague?.league.name ?? "Live matches"}</h2>
-              <span className={styles.count}>{liveFixtures.length ? `${liveFixtures.length} live` : "No live matches"}</span>
+              {liveFixtures.length > 0 ? <span className={styles.count}>{liveFixtures.length} live</span> : null}
             </div>
             <div className={styles.matchList}>
               {liveFixtures.map((fixture) => <MatchRow key={fixture.id} fixture={fixture} serverNow={serverNow} timeZone={timeZone} detailsEnabled />)}
-              {overview && liveFixtures.length === 0 ? (
-                <p className={styles.empty}>No live fixtures right now. <Link href="/fixtures">View fixtures</Link></p>
+              {overview && liveFixtures.length === 0 && nextFixture && kickoffCountdownSeconds !== null ? (
+                <div className={styles.nextKickoff} role="timer" aria-live="off">
+                  <span className={styles.nextKickoffLabel}>Next fixture</span>
+                  <span className={styles.nextKickoffTeams}>
+                    {nextFixture.homeTeam?.shortName ?? nextFixture.homeTeam?.name ?? "Home"}
+                    {" vs "}
+                    {nextFixture.awayTeam?.shortName ?? nextFixture.awayTeam?.name ?? "Away"}
+                  </span>
+                  <strong className={styles.nextKickoffCountdown}>
+                    {kickoffCountdownSeconds === 0 ? "Starting now" : formatKickoffCountdown(kickoffCountdownSeconds)}
+                  </strong>
+                  {kickoffCountdownSeconds > 0 ? <span className={styles.nextKickoffHint}>until kickoff</span> : null}
+                </div>
               ) : null}
             </div>
             {!overview && !error ? <MatchSkeletonList count={6} /> : null}

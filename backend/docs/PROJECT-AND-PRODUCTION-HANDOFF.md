@@ -1,9 +1,9 @@
 # SimSoccer Project and Production Handoff
 
-- **Snapshot date:** 2026-10-06
+- **Snapshot date:** 2026-10-07
 - **Repository:** `SimCore-Labs/simsoccer`
-- **Backend release deployed:** `599c7a8`
-- **EC2 checkout revision checked:** `599c7a8`
+- **Backend release deployed:** `1ff5d0b`
+- **EC2 checkout revision checked:** `1ff5d0b`
 
 This is an operational snapshot of the project and its production environment.
 It supplements [DEPLOYMENT-HANDOFF.md](./DEPLOYMENT-HANDOFF.md), which contains
@@ -353,6 +353,31 @@ which includes the Accounts API recovery fix from `d7a308d`.
 - Frontend build and targeted backend payment tests passed locally. The
   frontend deploys from `main` through Vercel; its exact deployed revision
   could not be independently confirmed.
+
+### Credits checkout dialogs and wallet history — 2026-10-07
+
+- Release `1ff5d0b` was fast-forwarded onto the EC2 checkout from `599c7a8`.
+  The deployed change adds the authenticated wallet-address lookup and payment
+  metadata to wallet transaction history. The checkout dialogs and related
+  account UI deploy separately through Vercel.
+- The complete commit range contained no database migration files or schema
+  changes. No database migration was needed; the backend startup migration
+  check passed and world readiness reports PostgreSQL, Redis, and migrations
+  healthy.
+- The frontend production build, backend TypeScript build, and targeted
+  `solana-payments.test.ts` passed locally. The built backend output was
+  transferred to EC2; the prior `backend/dist` was retained as
+  `backend/dist.previous-1ff5d0b` for rollback.
+- Only `simsoccer-runtime` was stopped and restarted. Accounts and settlement
+  remained online, and PM2 state was saved. All three PM2 processes now report
+  `online`; world health returned `ok`, Accounts API readiness returned
+  `ready`, and Nginx configuration validation passed.
+- The world reports `RUNNING` at Season 3 Round 8 with PostgreSQL and Redis
+  healthy. The new wallet lookup route returned `401 Unauthorized` without
+  credentials, confirming it is registered and remains protected.
+- The public Vercel `/account/credits` page returned HTTP 200, but its deployed
+  commit was not independently confirmed. No reset, production test payment,
+  or data-destructive operation was performed.
 
 ## My bets release verification — 2026-10-05
 

@@ -317,6 +317,37 @@
   gap: 3px;
 }
 
+.nextKickoff {
+  display: grid;
+  min-height: 104px;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  padding: 12px;
+  border-block: 1px solid #e7ebe8;
+  background: #f8faf8;
+  text-align: center;
+}
+
+.nextKickoffLabel,
+.nextKickoffHint {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.nextKickoffTeams {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.nextKickoffCountdown {
+  color: var(--pitch);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
 .matchRow {
   display: grid;
   grid-template-columns: 112px minmax(0, 1fr);
@@ -468,7 +499,7 @@
   grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  height: 30px;
+  min-height: 30px;
 }
 
 .goalMarkersHome,
@@ -476,22 +507,9 @@
   display: flex;
   min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   gap: 9px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  white-space: nowrap;
-}
-
-.goalMarkersHome::-webkit-scrollbar,
-.goalMarkersAway::-webkit-scrollbar {
-  display: none;
-}
-
-.goalMarkersHome:focus-visible,
-.goalMarkersAway:focus-visible {
-outline: 2px solid var(--pitch);
-outline-offset: -2px;
+  padding-block: 4px;
 }
 
 .goalMarkersHome {
