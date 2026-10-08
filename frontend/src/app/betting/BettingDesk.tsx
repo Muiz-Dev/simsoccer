@@ -1101,13 +1101,12 @@ export default function BettingDesk() {
         </button>
         <CheckCircleRoundedIcon className={styles.betSuccessIcon} aria-hidden="true" />
         <h2 id="bet-success-title">Bet placed</h2>
-        <p>Your selection is in My Bets.</p>
         <dl>
           <div><dt>Stake</dt><dd>{acceptedBet?.stake ?? "0.00"} credits</dd></div>
           <div><dt>Combined odds</dt><dd>{acceptedBet?.totalOdds ?? "0.00"}</dd></div>
           <div><dt>Potential return</dt><dd>{acceptedBet?.potentialPayout ?? "0.00"} credits</dd></div>
         </dl>
-        <Link href={`/bets#ticket-${acceptedBet?.id ?? ""}`} onClick={() => setAcceptedBet(null)}>View this bet in My Bets</Link>
+        <Link href={`/bets#ticket-${acceptedBet?.id ?? ""}`} onClick={() => setAcceptedBet(null)}>View bets</Link>
         <button type="button" onClick={() => setAcceptedBet(null)}>Continue browsing</button>
       </dialog>
 
