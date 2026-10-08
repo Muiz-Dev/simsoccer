@@ -1765,33 +1765,8 @@
 
 .betSuccessDialog {
   position: fixed;
-  inset: 0;
   z-index: 100;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  max-width: 100%;
-  height: 100%;
-  max-height: 100%;
-  padding: 20px;
-  border: 0;
-  background: transparent;
-  color: var(--desk-ink);
-}
-
-.betSuccessDialog::backdrop {
-  background: rgb(10 18 13 / 68%);
-  backdrop-filter: blur(3px);
-}
-
-.betSuccessDialog > * {
-  /* inner layout handled below */
-}
-
-/* Dialog inner panel — we wrap the dialog content by styling the dialog itself as the card */
-.betSuccessDialog {
-  /* Override the above for the card itself */
-  display: block;
+  display: none;
   inset: auto;
   left: 50%;
   top: 50%;
@@ -1808,8 +1783,40 @@
   text-align: center;
 }
 
+.betSuccessDialog::backdrop {
+  background: rgb(10 18 13 / 68%);
+  backdrop-filter: blur(3px);
+}
+
 .betSuccessDialog[open] {
+  display: block;
   animation: betSuccessIn 0.28s cubic-bezier(0.34, 1.36, 0.64, 1) both;
+}
+
+.betSuccessDialog > .betSuccessClose {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: grid;
+  width: 36px;
+  min-height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #5a6860;
+}
+
+.betSuccessDialog > .betSuccessClose:hover {
+  border-color: transparent;
+  background: #f1f5f2;
+  color: #0e5233;
+}
+
+.betSuccessClose:focus-visible {
+  outline: 2px solid #16864f;
+  outline-offset: 2px;
 }
 
 @keyframes betSuccessIn {

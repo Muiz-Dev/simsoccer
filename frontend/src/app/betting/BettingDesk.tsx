@@ -466,7 +466,7 @@ export default function BettingDesk() {
             ? "Loading your available balance…"
             : !stakeWithinBalance
               ? `Your available balance is ${formatCreditBalance(walletBalance) ?? "unavailable"} credits.`
-              : `${formatCreditBalance((availableBalance - stakeAmount).toFixed(2)) ?? "0.00"} credits will remain.`;
+              : "";
   const potentialReturn = Number.isFinite(Number(stake)) && Number(stake) > 0
     ? (Number(stake) * Number(roundedTotalOdds)).toFixed(2)
     : "0.00";
@@ -1091,6 +1091,14 @@ export default function BettingDesk() {
         aria-labelledby="bet-success-title"
         onClose={() => setAcceptedBet(null)}
       >
+        <button
+          className={styles.betSuccessClose}
+          type="button"
+          aria-label="Close bet confirmation"
+          onClick={() => setAcceptedBet(null)}
+        >
+          <CloseIcon aria-hidden="true" />
+        </button>
         <CheckCircleRoundedIcon className={styles.betSuccessIcon} aria-hidden="true" />
         <h2 id="bet-success-title">Bet placed</h2>
         <p>Your selection is in My Bets.</p>
